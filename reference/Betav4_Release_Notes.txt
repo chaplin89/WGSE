@@ -1,0 +1,6 @@
+(New) Release Notes for the WGS Extract Reference Library release itself
+  See https://wgsextract.github.io/ for more information on WGS Extract
+  See the 00README.txt and the WGS Extract User Manual for more information on this library
+
+
+

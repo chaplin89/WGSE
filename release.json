@@ -1,0 +1,13 @@
+{ 
+  "release": { 
+    "track": "Dev", 
+    "__comment0": "WGS Extract Installer release track control", 
+    "__comment1": "Set release.track to choose the URL below to find the latest version json.", 
+    "__comment2": "Stored in the installation root folder. Edit to change the track before (re)running the installer.", 
+    "baseURL":"https://raw.githubusercontent.com/WGSExtract/WGSExtract-Dev/master/", 
+    "DevURL": "https://raw.githubusercontent.com/WGSExtract/WGSExtract-Dev/master/latest-release-Dev.json", 
+    "AlphaURL": "https://raw.githubusercontent.com/WGSExtract/WGSExtract-Dev/master/latest-release-Alpha.json", 
+    "BetaURL": "https://raw.githubusercontent.com/WGSExtract/WGSExtract-Dev/master/latest-release-Beta.json", 
+    "__comment3": "Developers, you can replace URLs above with file:///path to test before release." 
+   } 
+} 

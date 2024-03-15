@@ -1,0 +1,10 @@
+cygwin64/
+FastQC
+jartools
+jre8
+jre17
+python
+temp
+yleaf
+.vscode
+**/*.pyc
