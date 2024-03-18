@@ -19,10 +19,7 @@ class Genome:
     def __init__(self) -> None:
         self.code: str = None
         self.source: Source = None
-        self.final_name: Path = None
-        self.initial_name: Path = None
-        self.uncompressed: Path = None
-        self.bgzip_compressed: Path = None
+        self.file: Path = None
         self.url: str = None
         self.label: str = None
         self.sn_count: str = None

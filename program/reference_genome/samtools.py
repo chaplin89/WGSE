@@ -88,6 +88,6 @@ class Samtools:
         self,
     ):
         """Generic indexer for TAB-delimited genome position files"""
-        arguments = [self._bgzip]
+        arguments = [self._tabix]
         process = subprocess.run(arguments)
         return process.stdout

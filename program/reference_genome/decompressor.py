@@ -6,30 +6,28 @@ import shutil
 from genome import Genome
 from samtools import Samtools
 from pathlib import Path
+from file_type_checker import Type, FileTypeChecker
 
 
 class Decompressor:
-    def __init__(self, samtools: Samtools) -> None:
-        self._samtools = samtools
+    def __init__(self, type_checker: FileTypeChecker) -> None:
+        self._type_checker = type_checker
 
         self.handlers = {
-            "gz": Decompressor.gz,
-            "zip": Decompressor.zip,
-            "7z": Decompressor.sevenzip,
-            "bz": Decompressor.bzip,
-            "bz2": Decompressor.bzip,
+            Type.GZIP: Decompressor.gz,
+            Type.ZIP: Decompressor.zip,
+            Type.SEVENZIP: Decompressor.sevenzip,
+            Type.BZIP: Decompressor.bzip,
         }
-
-        self.ignored_format = ["fa", "fna", "fasta"]
 
     def gz(self, file: Path):
         logging.debug(f"Decompressing file {file}. gzip compression detected.")
-        target_file = file.name.strip(file.suffix)
-        target_file = file.parent.joinpath(target_file)
+        target_file = self.determine_target_name(file)
 
-        with gzip.open(file, "rb") as f_in:
+        with gzip.open(str(file), "rb") as f_in:
             with open(target_file, "wb") as f_out:
                 shutil.copyfileobj(f_in, f_out)
+        return target_file
 
     def sevenzip(self, file: Path):
         logging.debug(f"Decompressing file {file}. 7z compression detected.")
@@ -37,77 +35,26 @@ class Decompressor:
 
     def bzip(self, file: Path):
         logging.debug(f"Decompressing file {file}. bzip compression detected.")
+        target_file = self.determine_target_name(file)
         raise NotImplementedError()
+        return target_file
 
     def zip(self, file: Path):
         logging.debug(f"Decompressing file {file}. zip compression detected.")
+        target_file = self.determine_target_name(file)
+        
+        raise NotImplementedError()
         with zipfile.ZipFile(file, "r") as f:
             f.extractall(file.parent)
+        return target_file
 
-    def need_decompression(self, genome: Genome) -> bool:
-        """Check if the genome already has a file with target
-          compression format (bgzip) or if it is uncompressed.
-
-        Args:
-            genome (Genome): Genome file to check.
-
-        Raises:
-            FileNotFoundError: File to check does not exist.
-
-        Returns:
-            bool: True if we don't have a file with target 
-            compression or uncompressed. False otherwise.
-        """
-        if not genome.initial_name.exists():
-            raise FileNotFoundError(
-                f"Unable to find reference genome file {genome.initial_name}."
-            )
-
-        if genome.uncompressed.exists():
-            return False
-        
-        if self._is_bgzip_compressed(genome.initial_name):
-            return False
-        
-        if self._is_uncompressed(genome.initial_name):
-            return False
-        return True
-
-    def _is_bgzip_compressed(self, file: Path):
-        """Uses samtools to check if a file is bgzip compressed.
-        
-        Args:
-            file (Path): File to check
-
-        Returns:
-            bool: True if bgzip compressed, False otherwise.
-        """
-        # Usually bgzip files have .gz extension but they can be 
-        # also .fasta, .fna, .fna. This is why this check is done 
-        # with samtools and not by looking at the extension.
-        file_type = self._samtools.get_file_type(file)
-
-        if "FASTA BGZF" in file_type:
-            return True
-        return False
-
-    def _is_uncompressed(self, file: Path):
-        """Check if the extension of a file indicates an uncompressed format.
-
-        Args:
-            file (Path): file to check
-
-        Returns:
-            bool: True if uncompressed, false otherwise.
-        """
-        # This method rely on checking the extension and it makes sense only
-        # if the file was already determined to not be bgzip compressed.
-        if file.suffix in self.ignored_format:
-            return True
-        return False
+    def determine_target_name(self, file: Path):
+        if file.suffix in [".bz2", ".bz", ".zip", ".7z", ".gz"]:
+            return Path(file.parent, file.stem)
+        raise RuntimeError(f"Unable to determine an appropriate decompressed filename for {file}")
 
     def decompress(self, genome: Genome):
-        """Decompress a genome file to genome.uncompressed file path.
+        """Decompress a genome file.
 
         Args:
             genome (Genome): Genome to decompress.
@@ -116,16 +63,15 @@ class Decompressor:
             FileNotFoundError: Input compressed genome file is not found.
             RuntimeError: Extension is not recognized.
         """
-        if not genome.initial_name.exists():
+        if not genome.file.exists():
             raise FileNotFoundError(
-                f"Unable to find reference genome file {genome.initial_name} to decompress."
+                f"Unable to find reference genome file {genome.file} to decompress."
             )
-        extension = genome.initial_name.suffix
-        extension = extension.lstrip(".")
-        if extension not in self.handlers:
+        type = self._type_checker.get_type(genome.file)
+        if type not in self.handlers:
             raise RuntimeError(
-                f"Trying to decompress a reference genome file with an unknown file extension: {genome.initial_name}"
+                f"Trying to decompress a reference genome file with an unknown file extension: {genome.file}"
             )
         
-        handler = self.handlers[extension]
-        handler(self, genome.initial_name)
+        handler = self.handlers[type]
+        return handler(self, genome.file)
