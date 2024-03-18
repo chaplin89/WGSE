@@ -1,22 +1,3 @@
-"""
-    * qualsiasi file se htsfile "$filen" restituisce FASTA BGZF -> FASTA Compresso, ignora
-    *.fa,fna,fasta se htsfile "$filen" restituisce -compressed -> FASTA Compresso ma con estensione sbagliata, ignora
-    Altrimenti: 
-    gz, zip, 7z, bz, bz2 -> decomprimi 
-    TUTTI -> esegui bgzip 
-
-    bgzip -cf@ f'{numero_proc}' (tutto il resto)
-    bgzip -if@ f'{numero_proc}' (fa,fna,fasta,gz)
-
-    htsfile $filen restituisce FASTA BGZF alla fine
-
-    file finale con estenzione .gz
-
-  Creating FA DICTionary  samtools dict file -o file.dict crea file.dict
-  Creating FA Index (FAI) samtools faidx $filen    crea file.fai e file.gzi
-  Creating BGZip Index (GZI) bgzip -r "$filen  # Also samtools index works
-  Counting N's (ncnt, nbin)" "${pythonx}" "${oWGSEFIN}/program/countingNs.py" "${filen}" | grep -v "INFO" | file_ncnt.
-"""
 from pathlib import Path
 import subprocess
 
