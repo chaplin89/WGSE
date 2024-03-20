@@ -1,6 +1,7 @@
 from pathlib import Path
 import subprocess
 
+
 class Samtools:
     """Wrapper around Samtools files"""
 
@@ -28,7 +29,12 @@ class Samtools:
 
         arguments = [self._samtools, "faidx", path, "-o", output]
         process = subprocess.run(arguments, check=True, capture_output=True)
-        return process.stdout
+        return process.stdout.decode("utf-8")
+
+    def view(self, file: Path, output: Path):
+        arguments = [self._samtools, "view", "-H", "--no-PG", file]
+        process = subprocess.run(arguments, check=True, capture_output=True)
+        return process.stdout.decode("utf-8")
 
     def make_dictionary(self, path: Path, output: Path = None):
         """Wrapper around "samtool dict" command. Create a sequence dictionary
@@ -45,7 +51,7 @@ class Samtools:
             output = Path(str(path) + ".dict")
         arguments = [self._samtools, "dict", path, "-o", output]
         process = subprocess.run(arguments, check=True, capture_output=True)
-        return process.stdout
+        return process.stdout.decode("utf-8")
 
     def bgzip_compress(self, path: Path, output: Path = None):
         """Wrapper around bgzip executable, used to compress a file
@@ -58,17 +64,18 @@ class Samtools:
         Returns:
             str: Output of the bgzip command.
         """
-        if output != None:
-            output = Path(str(path) + ".gz")
-
-        arguments = [self._bgzip, "-o", output, path]
+        arguments = [self._bgzip, "-if", path]
         process = subprocess.run(arguments, check=True, capture_output=True)
-        return process.stdout
+        return process.stdout.decode("utf-8")
 
-    def tab_indexer(
-        self,
-    ):
+    def tab_indexer(self,):
         """Generic indexer for TAB-delimited genome position files"""
         arguments = [self._tabix]
         process = subprocess.run(arguments)
-        return process.stdout
+        return process.stdout.decode("utf-8")
+
+    def idxstats(self, input:Path):
+        """Generate BAM index statistics"""
+        arguments = [self._samtools, input]
+        process = subprocess.run(arguments)
+        return process.stdout.decode("utf-8")

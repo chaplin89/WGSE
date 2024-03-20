@@ -10,8 +10,8 @@ class Type(enum.Enum):
     SEVENZIP = 2
     GZIP = 3
     BGZIP = 4
-    DECOMPRESSED = 5
-
+    RAZF_GZIP = 5
+    DECOMPRESSED = 6
 
 class FileTypeChecker:
     _EXT_TO_TYPE = {
@@ -28,7 +28,7 @@ class FileTypeChecker:
     _HTSFILE_TO_TYPE = {
         "BGZF-compressed": Type.BGZIP,
         "gzip-compressed": Type.GZIP,
-        "RAZF-compressed": Type.GZIP,
+        "RAZF-compressed": Type.RAZF_GZIP,
         "FASTA sequence": Type.DECOMPRESSED,
     }
 
@@ -52,11 +52,3 @@ class FileTypeChecker:
         if extension in FileTypeChecker._EXT_TO_TYPE:
             return FileTypeChecker._EXT_TO_TYPE[extension]
         return None
-
-    def need_decompression(self, file: Path):
-        type = self.get_type(file)
-        return type != Type.BGZIP and type != Type.DECOMPRESSED
-
-    def need_compression(self, file: Path):
-        type = self.get_type(file)
-        return type != Type.BGZIP

@@ -84,7 +84,8 @@ class CsvMetadataLoader:
                 genome_.sn_count = row[CsvFields.SN_COUNT]
                 genome_.sn_naming = row[CsvFields.SN_NAMING]
                 genome_.description = row[CsvFields.DESCRIPTION]
-                genome_.file = Path(row[CsvFields.INITIAL_NAME])
+                initial_name = Path(row[CsvFields.INITIAL_NAME])
+                genome_.file = Path(genome_.code + "_" + genome_.source.name + "".join(initial_name.suffixes))
                 genomes.append(genome_)
             return meta, genomes
 

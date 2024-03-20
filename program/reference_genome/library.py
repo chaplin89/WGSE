@@ -1,5 +1,6 @@
 import csv
 import enum
+import logging
 from pathlib import Path
 from typing import List, Union, Tuple
 from decompressor import Decompressor
@@ -11,8 +12,8 @@ from samtools import Samtools
 from csv_metadata_loader import CsvMetadataLoader
 import argparse
 
-
 class GenomeRepository:
+    """Manage a repository of reference genome files"""
 
     def __init__(
         self,
@@ -23,15 +24,6 @@ class GenomeRepository:
         compressor: Compressor,
         decompressor: Decompressor,
     ) -> None:
-        """Initialize the object
-
-        Args:
-            reference_genomes (List[Genome]): List of known reference genomes
-            library_path (Path): Root directory for the repository
-            downloader (Downloader): An instance of Downloader
-            compressor (Compressor): An instance of Compressor
-            decompressor (Decompressor): An instance of Decompressor
-        """
         self._reference_genomes = reference_genomes
         self._library_path = library_path
         self._type_checker = type_checker
@@ -42,7 +34,7 @@ class GenomeRepository:
 
     def determine_target_name(self, file: Path):
         if file.suffix in [".bz2", ".bz", ".zip", ".7z"]:
-            gz_compressed = Path(file.parent, file.stem + ".gz")
+            gz_compressed = file.with_suffix(".gz")
         elif file.suffix != ".gz":
             gz_compressed = Path(str(file) + ".gz")
         else:
@@ -51,27 +43,28 @@ class GenomeRepository:
         return gz_compressed
 
     def _rebase_reference_genomes(self, genomes: List[Genome], root: Path):
-        """Fix the filename for reference genomes so they're pointing to a file
-        under the root directory of this repository.
-
-        Args:
-            genomes (List[Genome]): List of reference genomes
-            root (Path): Root path for the library
-        """
         for genome in genomes:
             genome.file = root.joinpath(genome.file)
 
     def to_bgzip(self, genome: Genome):
         type = self._type_checker.get_type(genome.file)
 
-        if type == Type.BGZIP:
+        if type == Type.RAZF_GZIP:
+            logging.info(f"Determined type RAZF for {genome.file}. Skipping.")
+            # TODO: figure out how to decompress this format.
             return
-        
-        if type != Type.DECOMPRESSED:
+
+        if type == Type.BGZIP:
+            logging.info(f"Determined type BGZIP for {genome.file}. Skipping.")
+            return
+       
+        if type != Type.DECOMPRESSED:            
+            logging.info(f"Determined type {type} for {genome.file}. Decompressing.")
             decompressed = self._decompressor.decompress(genome)
             genome.file.unlink()
             genome.file = decompressed
         
+        logging.info(f"Compressing {genome.file} into bgzip.")
         compressed = self._compressor.compress(genome)
         genome.file.unlink()
         genome.file = compressed
@@ -82,26 +75,34 @@ class GenomeRepository:
         Args:
             genome (Genome): _description_
         """
+        
+        logging.info(f"Adding Genome {genome.code} to library.")
         if self._downloader.need_download(genome):
+            logging.info(f"Downloading Genome {genome.code}.")
             self._downloader.download(genome, None)
 
         target = self.determine_target_name(genome.file)
+        logging.info(f"Genome target name: {target}.")
+
         if target.exists():
             genome.file = target
         
         type = self._type_checker.get_type(genome.file)
+        logging.info(f"Genome file type determined: {type}.")
 
         if type != Type.BGZIP:
             try:
+                logging.info(f"Starting conversion of {type} to bgzip.")
                 self.to_bgzip(genome)
-            except:
-                pass
+            except Exception as e:
+                logging.error(e)
 
         #t = samtools.fasta_index(genome.file)
         #t = samtools.make_dictionary(genome.file)
 
 
 if __name__ == "__main__":
+    logging.getLogger().setLevel(logging.INFO)
 
     parser = argparse.ArgumentParser(
         description="Manage a library of reference genomes.",
@@ -148,7 +149,7 @@ if __name__ == "__main__":
     file_type_checker = FileTypeChecker(samtools)
     downloader = Downloader()
     decompressor = Decompressor(file_type_checker)
-    compressor = Compressor(file_type_checker)
+    compressor = Compressor(samtools)
     metadata = CsvMetadataLoader(args.csv)
 
     repository = GenomeRepository(
