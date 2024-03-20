@@ -1,21 +1,27 @@
 # coding: utf8
+#
+# Main WIndow / GUI module for the WGS Extract system
+# Todo modify from tkinter reliance to another, more modern GUI
+# Todo modify to remove button actions so a command line version can be run without the GUI
+#
+# Part of the
+# WGS Extract (https://wgse.bio/) system
+#
 # Copyright (C) 2018-2020 City Farmer
-# Copyright (C) 2020-2022 Randy Harr
+# Copyright (C) 2020-2023 Randy Harr
 #
 # License: GNU General Public License v3 or later
 # A copy of GNU GPL v3 should have been included in this software package in LICENSE.txt.
 
 """###################################################################################################################
-    Main window module for WGS Extract.  Everything revolves around the main window and its buttons on
+    Main window GUI module for WGS Extract.  Everything revolves around the main window and its buttons on
      different panes. Once various support modules are initialized in the main program (wgesextract), the
-     main entry point is mainwindow_setup.  Most of the button click action is handled here also.
-     Notable exceptions are the BAM file handling (module bamfile) and autosomal / microarray file extraction
-     (module microarray, aconv and hg38to19). The module referencegenome is quickly expanding to a stand alone
-     and handle all reference model downloads (all reference human genome models, liftover file, and likely
-     soon the 300 MB of microarray templates; thus dramatically reducing the footprint of the distributed program.)
+     main entry point is mainwindow_setup.  Most of the UI and button click action is handled here.
+     Notable exception is the microarray generator window pop-up (in microwindow.py)
 """
 
 import os.path      # os.path.isdir, .exists
+from functools import partial   # Better than Lambda for some cases
 import time         # time.ctime() for results window
 import webbrowser   # webbrowser.opennew()
 # noinspection PyUnresolvedReferences
@@ -23,8 +29,8 @@ import multiqc      # multiqc.run() used only on FastQC output when paired FASTQ
 
 # Original code imported tk after ttk. Thus making tk have priority.
 # We know because Tk uses parameter font while Ttk uses styles like CSS; Tk has Message, Ttk only has Label
-from tkinter import Tk, Toplevel, filedialog, simpledialog, Label, LabelFrame, LEFT, CENTER, N, S, E, W
-from tkinter import Text, VERTICAL, HORIZONTAL, Scrollbar, StringVar
+from tkinter import Tk, Toplevel, filedialog, simpledialog, messagebox, Scrollbar, StringVar    # , Radiobutton
+from tkinter import Label, LabelFrame, Text, VERTICAL, HORIZONTAL, LEFT, CENTER, E, W, NW, NSEW, NS, EW, TRUE, SOLID
 from tkinter.ttk import Notebook, Frame, Style, Combobox
 try:
     from tkmacosx import Button
@@ -33,32 +39,44 @@ except ImportError:
 
 from PIL import ImageTk, Image      # , ImageGrab -- not available in Linux
 # noinspection PyUnresolvedReferences,PyPep8Naming
-import pyscreenshot as ImageGrab    # Is available in Linux
+import pyscreenshot as ImageGrab    # Is available in Linux (whereas the original PIL / Pillow is not)
 
 # Local modules from WGSE
-from utilities import DEBUG, nativeOS, universalOS, unquote, wgse_message, is_legal_path, check_exists, FontTypes
+from utilities import DEBUG, nativeOS, universalOS, unquote, wgse_message, offset
+from utilities import is_legal_path, check_exists, fastq_base
+from utilities import is_wgse_outdated, update_release_track, load_wgse_version
+from utilities import OutputDirectory, FontTypes
 
-from commandprocessor import run_bash_script
+from commandprocessor import run_bash_script, update_release
 from bamfiles import BAMFile, BAMContentError, BAMContentErrorFile, BAMContentWarning
-from microarray import button_select_autosomal_formats, _button_CombinedKit
+from microwindow import button_microarray_window, _button_AllSNPs
 from fastqfiles import process_FASTQ
 
 import settings as wgse
 font = {}
+white = 'snow'          #            : text for low luminance colors (black not visible)
+maroon = 'dark violet'  #            : text color, along with red, in normal background
+pink = 'pink'           # '#ffb3fe'  : commands less than an hour or two
+red = 'hot pink'        # deep pink  : commands more than 2-3 hours
+cyan = 'cyan2'          # cyan       : changed from default value
+# For text colors use 'red' and '
 
 
 # Pop-up result windows (main window stored in wgse.window) global to this file
-global binstatsWindow, statsWindow, yHaploResWindow, simResWindow, selectLanguageWindow
-# global errPopupWindow (utilities), selectAutosomalFormatsWindow (microarray)
+global binstatsWindow, statsWindow, yHaploResWindow, simResWindow, selectLanguageWindow, askRefgenWindow
+# global errPopupWindow (utilities), microarrayWindow (microarray)
 # global askRefgenWindow (bamfiles), pleaseWaitWindow (commandprocessor)
 
 # Named Buttons (and labels) that are global to this file
 global all_action_buttons
-global documentationButton, exitButton, titleFileLabel
-global outputDirectoryLabel, outputDirectoryButton, langSelectLabel, langSelectButton, lreloadButton
+
+global versionLabel, documentationButton, exitButton, titleFileLabel, titleCommandLabel
+global outdirLabel, outdirButton, outdirUnselectButton, langSelectLabel, langSelectButton, lreloadButton
 global reflibDirectoryLabel, reflibDirectoryButton, tempDirectoryLabel, tempDirectoryButton
 global prefServerButton, bamSelectedLabel, bamSelectButton, bamReferenceGenomeLabel
+global infoLabelMapAvgReadDepth, infoLabelGender, infoLabelChroms
 global bamMapAvgReadDepthLabel, bamGenderLabel, bamChromsLabel, bamFsizeLabel  # bamAverageReadLengthLabel,
+
 global bamIdxstatsButton, bamHeaderButton, bamIndexButton, bamSortButton, bamConvertButton, bamWESButton
 global bamRealignButton, bamUnselectButton
 global autosomalFormatsButton
@@ -67,10 +85,11 @@ global yANDmtButton, yOnlyButton, yVCFButton
 global haplogroupYButton, haplogroupMtButton, exportUnmappedReadsButton
 global bamAlignButton, bamUnalignButton, fastqFastpButton, fastqFastqcButton
 global SNPVCFButton, InDelVCFButton, CNVVCFButton, SVVCFButton, AnnotateVCFButton, FilterVCFButton, VarQCButton
-# Debug_MODE only buttons
+
+# Debug_MODE only buttons, labels
 global wslbwaButton, runMicroParallelButton, subsetBAMButton
 global maxsettingsLabel, maxmemButton, maxmemLabel, maxthreadButton, maxthreadLabel
-global fontsetLabel, fontsizeButton, fontfaceButton, wresetButton
+global fontsetLabel, fontsizeButton, fontfaceButton, wresetButton, releaseTrackButton, updateProgramButton
 
 
 def mainwindow_resume():
@@ -81,13 +100,93 @@ def mainwindow_resume():
     wgse.tempf.clean()
 
 
-def button_exit():
-    """ Processing user button (or window close) as main exit out of the program; do any final cleanup. """
+def _prepare_to_exit():
     wgse.save_settings()
+    if wgse.window:
+        wgse.window.withdraw()
     wgse.tempf.list.append(wgse.tempf.oFP)      # Special case; to wipe out the PID created directory
     wgse.tempf.clean(False)                     # Will wipe the temp directory from the list first; so no temp clean
-    wgse.window.destroy()
+
+
+def _button_actual_exit():
+    if wgse.window:
+        wgse.window.destroy()
     exit()
+
+
+def button_exit():
+    """
+    Processing user button (or window close) as main exit out of the program; do any final cleanup.
+    Split into two due to Update Release Button to avoid race condition on saving settings
+    """
+    _prepare_to_exit()
+    _button_actual_exit()
+
+
+def gui_popup(etype, ttitle, tbody):
+    """ GUI portion of wgse_message; to keep all tkinter stuff together """
+
+    if etype == "error":
+        messagebox.showerror(ttitle, tbody)
+    elif etype == "warning":
+        messagebox.showwarning(ttitle, tbody)
+    elif etype == "info":
+        messagebox.showinfo(ttitle, tbody)
+    elif etype == "yesno":          # returns True (Yes), False (No)
+        return messagebox.askyesno(ttitle, tbody)
+    elif etype == "okcancel":       # returns True (OK), False (Cancel)
+        return messagebox.askokcancel(ttitle, tbody)
+    elif etype == "yesnocancel":    # returns True (Yes), False (No), None (Cancel)
+        return messagebox.askyesnocancel(ttitle, tbody)
+
+
+class ToolTip(object):
+    """
+    Pop-up / roll-over help messages for buttons, labels and other widgets. Helps alleviate descriptive text in UI.
+    """
+
+    def __init__(self, widget):
+        self.text = None
+        self.widget = widget
+        self.tipwindow = None
+        self.id = None
+        self.x = self.y = 0
+
+    def showtip(self, text):
+        """Display text in tooltip window"""
+        # Todo set geometry?  Or wrapwidth? Or use global text / font setting?
+        self.text = text
+        if self.tipwindow or not self.text:
+            return
+        x, y, cx, cy = self.widget.bbox("insert")
+        x = x + self.widget.winfo_rootx() + 57
+        y = y + cy + self.widget.winfo_rooty() +27
+        self.tipwindow = tw = Toplevel(self.widget)
+        tw.wm_overrideredirect(TRUE)
+        tw.wm_geometry("+%d+%d" % (x, y))
+        label = Label(tw, text=self.text, justify=LEFT,
+                      background="#ffffe0", relief=SOLID, borderwidth=1,
+                      font=("tahoma", "8", "normal"))
+        label.pack(ipadx=1)
+
+    def hidetip(self):
+        tw = self.tipwindow
+        self.tipwindow = None
+        if tw:
+            tw.destroy()
+
+
+def AddToolTip(widget, text):
+    toolTip = ToolTip(widget)
+
+    def enter(event):
+        toolTip.showtip(text)
+
+    def leave(event):
+        toolTip.hidetip()
+
+    widget.bind('<Enter>', enter)
+    widget.bind('<Leave>', leave)
 
 
 def ask_vcfs_to_process():
@@ -102,13 +201,18 @@ def ask_vcfs_to_process():
     if not vcf_FNs or len(vcf_FNs) == 0:      # User must have cancelled; simply return as nothing to do
         DEBUG("VCF File Selection Cancelled ...")   # Do nothing
         return ""        # Does not really matter
+
     DEBUG(f"Selected VCFs (request): {vcf_FNs}")
     VCFs = {}
     for ofile in vcf_FNs:
         if not (ofile and ofile.endswith(required_ext) and os.path.exists(ofile)):
             wgse_message("error", 'VCFFileBadTitle', True, wgse.lang.i18n['VCFFileBad'].replace("{{VCF}}", ofile))
             return ""
+
         file = universalOS(ofile)
+        if not VCFs:    # First one so use it to set a new default output directory if needed
+            wgse.outdir.new_default(os.path.dirname(file))
+
         VCFs[file] = ({'unk'}, set())
 
     return VCFs
@@ -116,9 +220,9 @@ def ask_vcfs_to_process():
 
 def ask_fastq_to_align():
     required_ext = (".fq", ".fastq", ".fastq.gz", ".fq.gz")
-    files = (".fq", ".fastq", ".gz") if wgse.os_plat == "Darwin" else required_ext  # Bug in MacOS libraries
-    initialdir = wgse.BAM.file_FP if wgse.BAM and wgse.BAM.file_FP else \
-                 wgse.outdir.FP if wgse.outdir and wgse.outdir.FP else ""
+    files = (".fq", ".fastq", ".gz") if wgse.os_plat == "Darwin" else required_ext  # Bug in MacOS ; two dots in extension not allowed
+    initialdir = wgse.BAM.file_FP if wgse.BAM    and wgse.BAM.file_FP else \
+                 wgse.outdir.FP   if wgse.outdir and wgse.outdir.FP   else ""
     fastq_FNs = filedialog.askopenfilenames(parent=wgse.window, initialdir=initialdir,
                     title=wgse.lang.i18n['SelectFASTQFiles'],
                     filetypes=[(wgse.lang.i18n['FrameFASTQFiles'], files), ])
@@ -126,11 +230,17 @@ def ask_fastq_to_align():
     if not fastq_FNs or len(fastq_FNs) == 0:      # User must have cancelled; simply return as nothing to do
         DEBUG("FASTQ File Selection Cancelled ...")   # Do nothing
         return ""        # Does not really matter
+
     for file in fastq_FNs:
         if not (file and file.endswith(required_ext) and os.path.exists(file)):
             wgse_message("error", 'FastqFileBadTitle', True, wgse.lang.i18n['FastqFileBad'].replace("{{FASTQ}}", file))
             return ""
+
     DEBUG(f"Selected FASTQs (request): {fastq_FNs}")
+
+    # Set default output directory (if not user set yet) to the location the user desires these FASTQs
+    wgse.outdir.new_default(os.path.dirname(fastq_FNs[0]))
+
     return fastq_FNs
 
 
@@ -141,8 +251,8 @@ def ask_BAM_filename(new=False):
     """
     title = 'SpecifyBamFile' if new else 'SelectBamFile'
     required_ext = (".bam", ".cram")
-    initialdir = wgse.outdir.FP if wgse.outdir and wgse.outdir.FP else \
-        wgse.BAM.file_FP if wgse.BAM and wgse.BAM.file_FP else ""
+    initialdir = wgse.outdir.FP   if wgse.outdir and wgse.outdir.FP   else \
+                 wgse.BAM.file_FP if wgse.BAM    and wgse.BAM.file_FP else ""
     file_BS = filedialog.asksaveasfilename(parent=wgse.window, initialdir=initialdir,
                                            title=wgse.lang.i18n[title],
                                            filetypes=[(wgse.lang.i18n['BamFiles'], required_ext), ])
@@ -151,7 +261,118 @@ def ask_BAM_filename(new=False):
             (is_legal_path(file_BS) if new else os.path.exists(file_BS))):
         wgse_message("error", 'BAMNameOrExtTitle', False, 'BAMNameOrExt')
         return ""
+
+    if not new:
+        wgse.outdir.new_default(os.path.dirname(file_BS))
+
     return file_BS
+
+
+global cbRefgenome, askRefgenDone
+
+
+def ask_refgenome(inBAM=True, window=wgse.window):
+    """
+    If we cannot figure the reference genome from BAM, ask the user.  Gives them the option to say "unknown".
+    This is called from the referencelibrary Class (where the refgenome is determined for a new BAM). But also
+    from the (Re)Align button here.  Moved this from referencelibrary class to consolidate GUI code here. As a
+    result, we must call back to the referencelibrary to get the list of possible refgenomes to select from
+    (as loaded from genomes.csv and possibly trimmed based on known BAM parameters). Unlike other ask_* routines in
+    mainwindow, this is a popup selector we generate and not a file selector.  So we need a post pop-up matching
+    routine after button selection. We forward the inBAM parameter to the reference library list generation call
+    so it can trim the list based on known BAM file parameters that prevent some from being selected.
+    Returns a typle of the Refgenome code (string) and the SN count for that reference model (integer)
+    """
+    global font, askRefgenWindow, cbRefgenome, askRefgenDone
+    font = wgse.fonts.table if wgse and wgse.fonts else {'14': ("Times New Roman", 14)}
+
+    # mainWindow.withdraw()
+
+    # Technically, may not be mainwindow that we are forked from; could be anywhere. But have no current window.
+    askRefgenWindow = Toplevel(window)
+    askRefgenWindow.transient()
+    askRefgenWindow.protocol("WM_DELETE_WINDOW", ask_refgenome_cbhandler)   # Trick to clear value
+    askRefgenWindow.title(wgse.lang.i18n['SelectReferenceGenome'])
+    askRefgenWindow.geometry(offset(window.geometry(), 50))
+    askRefgenWindow.iconbitmap(wgse.icon_oFP) if wgse.os_plat == "Windows" else ''
+    askRefgenWindow.columnconfigure(0, weight=1)
+    askRefgenWindow.rowconfigure(1, weight=1)
+
+    # Setup intro text above list box selector (longer if inBAM and so we could not figure out reference genome)
+    textToDisplay = ""
+    if inBAM:
+        # Failed trying to determine Reference Genome of BAM; so ask user but downselect possible refgenomes
+        file = wgse.BAM.file_FB + "_header.txt"
+        textToDisplay = wgse.lang.i18n['CouldntDetermineReferenceGenome'].replace("{{Head}}", file) + '\n' + '\n'
+        textToDisplay += wgse.lang.i18n['CautionSelectTheCorrectRefGenome'] + '\n' + '\n'
+
+    # Simply ask for a reference genome (e.g. in an Align command) ; if in BAM, may have before and after text
+    textToDisplay += wgse.lang.i18n['PleaseSelectReferenceGenome'] + '\n' + '\n'
+
+    if inBAM:
+        textToDisplay += '          ' + wgse.lang.i18n['YourBAMParameters'].replace(
+            "{{RefGen}}", wgse.BAM.refgenome_str())
+
+    Label(askRefgenWindow, text=textToDisplay, font=font['14'],
+          anchor="w", justify="left").grid(row=0, columnspan=2, padx=5, pady=3)
+
+    # Setup listbox dropdown selector
+    cbTable = wgse.reflib.available_refgenomes(inBAM)   # table of available ref genomes to select (smaller if inBAM)
+    cbRefgenome = StringVar(askRefgenWindow)    # Setup return string variable of drop down table select (cbTable entry)
+
+    askRefgenCB = Combobox(askRefgenWindow, textvariable=cbRefgenome, values=cbTable, state='readonly',
+                           height=15, width=70, justify="left")
+    askRefgenCB.set('')     # Could default the combobox to a list element e.g. cbTable[0]
+    askRefgenCB.bind('<<ComboboxSelected>>', ask_refgenome_cbhandler)
+    askRefgenCB.grid(row=1, sticky=NW)
+
+    # We could simply exit the window when the Combobox value is changed; but let's wait for the user to hit a Done
+    #  button so they can be assured of what they selcted first
+    askRefgenDone = Button(askRefgenWindow, text=wgse.lang.i18n['Done'], font=font['14'], state="disabled",
+                           command=ask_refgenome_donehandler)
+    askRefgenDone.grid(row=3)
+
+    askRefgenWindow.update()
+    askRefgenWindow.grab_set()  # Toplevel equivalent of mainloop
+    askRefgenWindow.wait_window(askRefgenWindow)
+
+    # Rertieve user selection and convert back into internal refgenome form (from available selection string)
+    new_refgenome = wgse.reflib.key_from_availist(cbRefgenome.get())
+
+    if new_refgenome == "unknown":
+        new_refgenome = None
+
+    # If hit "x' to close window without selecting or selected unknown, then new_refgenome is None
+    # Otherwise, new_refgenome is the internal key for the selected refgenome string (set by the handler)
+    if inBAM:       # Store result in BAM class settings
+        wgse.BAM.Refgenome = new_refgenome
+        wgse.BAM.RefMito = "Yoruba" if "hg19" in wgse.BAM.Refgenome else \
+                           "rCRS" if wgse.BAM.Refgenome else \
+                           None
+        wgse.BAM.RefgenomeNew = None  # Todo How to set up new RefGenomeNew after the fact? Store in genomes.csv?
+
+    mainwindow_resume()
+
+    return new_refgenome        # Was a function call; so will not return to the main loop
+
+
+def ask_refgenome_cbhandler(event=None):        # Window exit or combobox selection event (overloaded)
+    global askRefgenWindow, cbRefgenome, askRefgenDone
+
+    if event is None:                               # Must be the window close, so clear setting and exit
+        cbRefgenome.set("")
+        askRefgenWindow.destroy()
+    elif cbRefgenome.get() is not None:             # Changed value in combobox so enable Done button
+        askRefgenDone.config(state="normal")
+    else:                                           # Cleared value from combobox so disable Done button
+        askRefgenDone.config(state="disabled")
+    # Ignore the value change as we will pick it up when the Done button is hit and we exit the window
+
+
+def ask_refgenome_donehandler(event=None):      # Done button (only)
+    global askRefgenWindow
+
+    askRefgenWindow.destroy()
 
 
 def update_action_buttons():
@@ -161,10 +382,23 @@ def update_action_buttons():
     Newstate is "normal" IF a BAM is set and the output directory is set.  Otherwise, is "disabled"
     Cannot enable Stats nor Header button as it has a Save button which needs output set
     """
+    global font
+
+    font = wgse.fonts.table
+
     # Special buttons that are always active but change to value set; default value initially set
     # Could maybe change out to use StringVar so updated automatically ....
-    outputDirectoryButton.configure(text=wgse.outdir.FB if wgse.outdir and wgse.outdir.FP else
-                                         wgse.lang.i18n['SelectOutputDirectory'])
+    if wgse.outdir and wgse.outdir.FP and wgse.outdir.user_set:
+        outdirButton.configure(text=wgse.outdir.FB)
+        outdirButton.configure(font=font['14b'] if wgse.outdir.user_set else font['14'])
+        outdirButton.configure(bg=cyan if wgse.outdir.user_set else wgse.defbut_bg)
+        outdirUnselectButton.grid()
+    else:
+        outdirButton.configure(text=wgse.lang.i18n['Default'])
+        outdirButton.configure(font=font['14'])
+        outdirButton.configure(bg=wgse.defbut_bg)
+        outdirUnselectButton.grid_remove()
+
     reflibDirectoryButton.configure(text=wgse.reflib.FB if wgse.reflib and wgse.reflib.set else
                                          wgse.lang.i18n['Default'])
     tempDirectoryButton.configure(text=wgse.tempf.FB if wgse.tempf and wgse.tempf.set else
@@ -181,14 +415,15 @@ def update_action_buttons():
     # Override BAM File area buttons if BAM and Output Directory are set even if Stats is not yet set
     if wgse.BAM and wgse.outdir and wgse.outdir.FP:
         set_BAM_window_settings()
-    if wgse.outdir and wgse.outdir.FP:       # Primary input buttons only require outdir be set
-        bamSelectButton.configure(state="normal")       # For BAM / CRAM file selection; may be set from saved settings
-        bamAlignButton.configure(state="normal")        # For FASTQ; can do Align, fastp, and fastqc as soon as output
-        fastqFastpButton.configure(state="normal")      # directory is specified.  It will query for FASTQ files if
-        fastqFastqcButton.configure(state="normal")     # not from BAM when BAM specified
-        VarQCButton.configure(state="normal")           # Can work off of user specified VCF; not just BAM one
-        AnnotateVCFButton.configure(state="normal")     # Can work off of user specified VCF; not just BAM one
-        FilterVCFButton.configure(state="normal")       # Can work off of user specified VCF; not just BAM one
+
+    # if wgse.outdir and wgse.outdir.FP:                  # Primary input buttons only require outdir be set
+    bamSelectButton.configure(state="normal")       # For BAM / CRAM file selection; may be set from saved settings
+    bamAlignButton.configure(state="normal")        # For FASTQ; can do Align, fastp, and fastqc as soon as output
+    fastqFastpButton.configure(state="normal")      # directory is specified.  It will query for FASTQ files if
+    fastqFastqcButton.configure(state="normal")     # not from BAM when BAM specified
+    VarQCButton.configure(state="normal")           # Can work off of user specified VCF; not just BAM one
+    AnnotateVCFButton.configure(state="normal")     # Can work off of user specified VCF; not just BAM one
+    FilterVCFButton.configure(state="normal")       # Can work off of user specified VCF; not just BAM one
 
     if wgse.os_plat != "Windows":
         wslbwaButton.configure(state="disabled")
@@ -254,19 +489,29 @@ def update_action_buttons():
 def clear_BAM_window_settings():
     """ Called after clearing a BAM to clear all the window labels of wgse.BAM.* settings. """
 
+    if not wgse.window:
+        return
+
     # Title bar filename label
     titleFileLabel.configure(text="")
 
     # Reset button to initial Select message
     bamSelectButton.configure(text=wgse.lang.i18n['SelectBamFile'])
-    if not (wgse.outdir and wgse.outdir.FP):
-        bamSelectButton.configure(state="disabled")
+    # if not (wgse.outdir and wgse.outdir.FP):          # Setup default outdir for BAM now; so do not disable
+    #    bamSelectButton.configure(state="disabled")
 
     bamReferenceGenomeLabel.configure(text="")
+
+    # Unaligned BAMs will change the left label; so reset these to default for Aligned BAMs
+    infoLabelMapAvgReadDepth.configure(text=wgse.lang.i18n['MapAvgReadDepthNoN'] + ":")
     bamMapAvgReadDepthLabel.configure(text="")
-    # bamAverageReadLengthLabel.configure(text="")
+
+    infoLabelGender.configure(text=wgse.lang.i18n['Gender'] + ":")
     bamGenderLabel.configure(text="")
+
+    infoLabelChroms.configure(text=wgse.lang.i18n['Chroms'] + ":")
     bamChromsLabel.configure(text="")
+
     bamFsizeLabel.configure(text="")
 
     bamIdxstatsButton.configure(state="disabled")
@@ -292,47 +537,65 @@ def set_BAM_window_settings():
         clear_BAM_window_settings()     # Just to make sure; but likely OK to just return
         return
 
+    if not wgse.window:
+        return
+
     # For title bar filename (so visible no matter what the tab setting; as a reminder)
     titleFileLabel.configure(text=wgse.BAM.disp_FBS)
 
     # Changed from FB to FBS to show CRAM file extension; use size limited one to avoid overruns in display
     bamSelectButton.configure(text=wgse.BAM.disp_FBS)
-    if wgse.outdir and wgse.outdir.FP:
-        bamSelectButton.configure(state="normal")
+    # if wgse.outdir and wgse.outdir.FP:        # Always display BAM select button now
+    bamSelectButton.configure(state="normal")
     bamReferenceGenomeLabel.configure(text=wgse.BAM.refgenome_str())
 
     if wgse.BAM.Stats:      # Values to report as "blank" when no Stats run to fill them in yet
         bamMapAvgReadDepthLabel.configure(text=f'{wgse.BAM.mapped_avg_read_depth_NoN} {wgse.lang.i18n["xTimes"]}')
-        # bamAverageReadLengthLabel.configure(text=f'{wgse.BAM.avg_read_length} {wgse.lang.i18n["bp"]}')
         bamGenderLabel.configure(
                 text=wgse.lang.i18n.get(wgse.BAM.gender, wgse.BAM.gender))  # use value if key error
-    else:
+    elif wgse.BAM.Sorted is None:   # Unaligned BAM; report different information from normal Stats page
+        read_type = wgse.lang.i18n['PairedEnd'] if wgse.BAM.ReadType == "Paired" else \
+            wgse.lang.i18n['SingleEnd'] if wgse.BAM.ReadType == "Single" else ""
+        read_length_str = (f'{wgse.BAM.avg_read_length:,.0f} {wgse.lang.i18n["bp"]}, '
+                           f'{wgse.BAM.avg_read_stddev:,.0f} {wgse.lang.i18n["StdDev"]}, {read_type}')
+        infoLabelMapAvgReadDepth.configure(text=wgse.lang.i18n['AverageReadLength'] + ":")
+        bamMapAvgReadDepthLabel.configure(text=read_length_str)
+
+        infoLabelGender.configure(text=wgse.lang.i18n['Sequencer'] + ":")
+        bamGenderLabel.configure(text=wgse.BAM.Sequencer if wgse.BAM.Sequencer else "Unknown")
+
+    else:   # No BAM information to report
         bamMapAvgReadDepthLabel.configure(text="")
-        # bamAverageReadLengthLabel.configure(text="")          # Removed, ran out of room
         bamGenderLabel.configure(text="")
 
-    bamChromsLabel.configure(text=wgse.BAM.chrom_types_str())   # Will be blank if no stats; now called File Content:
+    bamChromsLabel.configure(text=wgse.BAM.chrom_types_str())   # Now called File Content: (is blank if no info)
+    bamFsizeLabel.configure(text=wgse.BAM.filestatus_str())     # Now called File Stats: as has sort and index status
 
-    bamFsizeLabel.configure(text=wgse.BAM.filestatus_str())     # Now called File Stats as has sort and index status:
-
-    bamIdxstatsButton.configure(state="normal");  bamIdxstatsButton.grid()     # Always show
-    bamHeaderButton.configure(state="normal");    bamHeaderButton.grid()       # Always show
+    stats_run = wgse.BAM.Stats or (wgse.BAM.Indexed and wgse.BAM.file_type == "BAM")
+    bamIdxstatsButton.configure(bg=wgse.defbut_bg if stats_run else pink)
+    bamIdxstatsButton.configure(state="disabled" if wgse.BAM.Sorted is None else "normal")
+    bamIdxstatsButton.grid()     # Always show
+    bamHeaderButton.configure(state="normal")
+    bamHeaderButton.grid()       # Always show
 
     # For Sort and Index buttons that serve as status indicators also; disable if already done and not DEBUG mode
     #  otherwise, if DEBUG mode, always enabled but a toggle button
     if wgse.DEBUG_MODE and wgse.BAM.Sorted:   # For developers only
-        bamSortButton.configure(state="normal", text=wgse.lang.i18n["Unsort"], command=_button_unsort_BAM)
-    else:
-        bamSortButton.configure(state="disabled" if wgse.BAM.Sorted else "normal",
-                                text=wgse.lang.i18n["Sorted"] if wgse.BAM.Sorted else wgse.lang.i18n["Sort"],
-                                command=button_sort_BAM)
+        bamSortButton.configure(state="normal", text=wgse.lang.i18n["Unsort"], bg=wgse.defbut_bg, command=_button_unsort_BAM)
+    elif wgse.BAM.Sorted is None:
+        bamSortButton.configure(state="disabled", text=wgse.lang.i18n["Unaligned"], bg=wgse.defbut_bg, command=_button_unsort_BAM)
+    elif wgse.BAM.Sorted:
+        bamSortButton.configure(state="disabled", text=wgse.lang.i18n["Sorted"], bg=wgse.defbut_bg, command=button_sort_BAM)
+    else:   # BAM is aligned and not coordinate sorted; so display the Sort button
+        bamSortButton.configure(state="normal", text=wgse.lang.i18n["Sort"], bg=pink, command=button_sort_BAM)
     bamSortButton.grid()        # Make button visible because BAM File is set now
+
     if wgse.DEBUG_MODE and wgse.BAM.Indexed:   # For developers only
-        bamIndexButton.configure(state="normal", text=wgse.lang.i18n["Unindex"], command=_button_unindex_BAM)
-    else:
-        bamIndexButton.configure(state="disabled" if wgse.BAM.Indexed else "normal",
-                                 text=wgse.lang.i18n["Indexed"] if wgse.BAM.Indexed else wgse.lang.i18n["Index"],
-                                 command=button_index_BAM)
+        bamIndexButton.configure(state="normal", text=wgse.lang.i18n["Unindex"], bg=wgse.defbut_bg, command=_button_unindex_BAM)
+    elif wgse.BAM.Indexed:
+        bamIndexButton.configure(state="disabled", text=wgse.lang.i18n["Indexed"], bg=wgse.defbut_bg, command=button_index_BAM)
+    else:   # BAM is not indexed
+        bamIndexButton.configure(state="normal", text=wgse.lang.i18n["Index"], bg=pink, command=button_index_BAM)
     bamIndexButton.grid()       # Make button visible because BAM File is set now
 
     # Additional buttons that are initially invisible and should now be made visible
@@ -372,6 +635,8 @@ def button_select_BAM_file():
 def button_unselect_BAM_file():
     if wgse.BAM:
         wgse.BAM = None
+        if not wgse.outdir.user_set:
+            button_unselect_outdir()
         set_BAM_window_settings()           # Sets window labels of BAM file settings
         wgse.save_settings()                # Changed BAM file; so save settings
     mainwindow_resume()
@@ -391,16 +656,20 @@ def set_BAM_file(BAM_FN):
     # Empty BAM file name; error message and return as nothing to do
     if not BAM_FN:
         wgse_message("error", 'InvalidBAMTitle', True,
-                     wgse.lang.i18n['errBAMFile'].replace("{{BAMF}}", BAM_FN) + "(empty)")
+                     wgse.lang.i18n['errBAMFile'].replace("{{BAMF}}", "none") + "(blank)")
         return False
 
-    # Shortcut if not changing the BAM file; otherwise prepare to restore currently set in case new one fails
-    if wgse.BAM and wgse.BAM.file_FN == BAM_FN:     # Nothing to do; simply trying to set to same file as currently set
+    # Shortcut if not changing the currently set BAM file
+    if wgse.BAM and wgse.BAM.file_FN == BAM_FN:
         return True
 
-    # Prepare to restore existing BAM if new one fails; even if BAM not yet set and entry is None
+    # Prepare to restore existing BAM (and default outdir) if new one fails; even if BAM not yet set and entry is None
     save_orig_BAM = wgse.BAM
+    save_orig_outdir = wgse.outdir
+
     wgse.BAM = None
+    if wgse.outdir and wgse.outdir.FP and not wgse.outdir.user_set:
+        wgse.outdir = OutputDirectory()     # Setup new, blank class instance IF no current outdir or not user_set
 
     try:
         wgse.BAM = BAMFile(BAM_FN)      # Process the BAM by opening file, reading header and setting up Class instance
@@ -408,45 +677,38 @@ def set_BAM_file(BAM_FN):
         # Identical content at this point to normal error as file was added into reason already
         if err.reason != "RefGen":      # Special to indicate error already reported
             wgse_message("error", 'InvalidBAMTitle', True,
-                          wgse.lang.i18n['errBAMFile'].replace("{{BAMF}}", BAM_FN) + err.reason)
-        if wgse.BAM:                    # If set, then delete due to error and restore old value ;
-            wgse.BAM = save_orig_BAM    # garbage collect the new BAM
-        # Leave old BAM in place as new one failed; fall through as deleted temporary
+                         wgse.lang.i18n['errBAMFile'].replace("{{BAMF}}", BAM_FN) + err.reason)
     except BAMContentError as err:      # Error setting up new BAM; restore old one and report issue
         wgse_message("error", 'InvalidBAMTitle', True,
                      wgse.lang.i18n['errBAMFile'].replace("{{BAMF}}", BAM_FN) + err.reason)
-        if wgse.BAM:                    # If set, then delete due to error and restore old value ;
-            wgse.BAM = save_orig_BAM    # garbage collect the new BAM
-        # Leave old BAM in place as new one failed; fall through as deleted temporary
     except BAMContentWarning as warn:   # Warning on setting up new BAM; simply issue message
         wgse_message("warning", 'FrameBAM', True,
                      wgse.lang.i18n['warnBAMFile'].replace("{{BAMF}}", BAM_FN) + warn.reason)
-        # Simply fall through after issuing warning
-    else:                               # Setup new BAM without exception; check for other issues to warn about
-        if not (wgse.BAM.Sorted and wgse.BAM.Indexed):
-            # Warn about not collecting stats on initial BAM load if not sorted and/or indexed.
+
+    else:                               # BAM was setup; check for other issues to warn about
+        if not (wgse.BAM.Sorted and wgse.BAM.Indexed) and wgse.BAM.Sorted is not None:
+            # Warn about not collecting stats on initial BAM load if not sorted and/or indexed (ignore if Unaligned)
             wgse_message("warning", 'FrameBAM', True,
                          wgse.lang.i18n['warnBAMFile'].replace("{{BAMF}}", BAM_FN) +
                          wgse.lang.i18n['warnBAMNoStatsNoIndex'])
         elif wgse.BAM.file_type == "CRAM" and not wgse.BAM.Stats:  # Do not need to warn about both; one is enough
-            # Warn about need to collect stats on CRAM file; if did not pick up stats from a previous run
+            # Warn about need to collect stats on CRAM file; if we did not pick up stats from a previous run
             wgse_message("warning", 'FrameBAM', True,
                          wgse.lang.i18n['warnBAMFile'].replace("{{BAMF}}", BAM_FN) +
                          wgse.lang.i18n['warnCRAMNoStats'])
 
-    # If still not set, restore old setting (both may be None)
+    # If still not set, restore old settings (BAM may be None)
     if not wgse.BAM:
-        wgse.BAM = save_orig_BAM
-    elif wgse.BAM.file_FN == BAM_FN:    # Check if setup new BAM file
-        # Sets part of output File variables that includes BAM base name
-        if wgse.outdir.FP and wgse.BAM:
-            wgse.outdir.oFPB = wgse.outdir.oFP + wgse.BAM.file_FB
-            wgse.outdir.FPB  = wgse.outdir.FP  + wgse.BAM.file_FB
+        wgse.BAM = save_orig_BAM            # Replaces with previous class instances (garbage collect old ones)
+        wgse.outdir = save_orig_outdir
 
-        set_BAM_window_settings()           # Sets window labels of BAM file settings
-        wgse.save_settings()                # Changed BAM file; so save settings
-        return True
-    return False
+    # BAM file did not change (exited earlier if it was the same so how did we get here?)
+    if wgse.BAM and wgse.BAM.file_FN != BAM_FN:
+        return False
+
+    set_BAM_window_settings()           # Sets window labels of BAM file settings
+    wgse.save_settings()                # Changed BAM file; so save settings
+    return True
 
 
 def button_stats_BAM():
@@ -456,9 +718,9 @@ def button_stats_BAM():
     """
 
     # There are three stats runs.  Each possibly 30-60 minutes long.  We delay long stats runs until the user
-    #  requests it directly with a button click.  But, if they were run previously and we find the file still
-    #  available, we will go ahread and process the file content immediately.  Each stats calculation determines
-    #  if it was run before and/or can run quickly; unless being forced by a button click directly.
+    #  requests it directly with a button click.  But, if they were run previously and we find the file is still
+    #  available, we will go ahread and process the file now.  Each stats call determines if it was run before
+    #  and/or can run quickly; unless being forced by a button click directly.
 
     # Stats Button only enabled if wgse.BAM exists; but Stats may not have been calculated yet so force it now ...
     try:
@@ -468,37 +730,28 @@ def button_stats_BAM():
         return
 
     if wgse.BAM.Stats is False:
-        return  # This should never have occurred; an error if forced run did not cause stats to be set
+        DEBUG("*** Failed to create the idxstats file.")
+        return  # This should never have occurred
 
     # So do not force now (as if a button hit directly). Instead, determine if there is a file from a previous run and
-    #  load if so. Buttons always displayed now to generate file and pop-up detail when clicked directly.
-    # wgse.BAM.get_coverage_stats(wgse.window, button_directly=False)   # V4 replaced with bincoverage
-    # covstats = False if wgse.BAM.coverage is None else True
+    #  load now if so.
     if wgse.BAM.Primary:   # Unmapped or Alt Contig only BAMs cannot have coverage
         wgse.BAM.get_bincvg_stats(wgse.window, "WGS", button_directly=False)    # button=false only reads stats if found
         wgse.BAM.get_bincvg_stats(wgse.window, "WES", button_directly=False)    # - does not create if not found
 
-    result_window_stats(wgse.BAM.coverage, wgse.BAM.coverage_WES)
+    # Create the pop-up window to display the stats
+    result_window_stats()
 
 
-def result_window_stats(covstats, WESstats):
+def result_window_stats():
     """
     Create and setup main Stats window. Wait until closed.
     This is the only window (beside the main) that has buttons for creating sub-windows.
     """
-    global statsWindow
+    global statsWindow, font
 
-
-
-    # wgse.window.withdraw()        # Maybe hide main window while displaying stats? Turned off for now
-    statsWindow = Toplevel(wgse.window)
-    statsWindow.transient(wgse.window)
-    statsWindow.title(wgse.lang.i18n['BamFileStatistics'])
-    statsWindow.geometry(wgse.bamstats_winsize)
-    statsWindow.protocol("WM_DELETE_WINDOW", lambda win=statsWindow: button_close(win))
-    statsWindow.iconbitmap(wgse.icon_oFP) if wgse.os_plat == "Windows" else ''
-    statsWindow.columnconfigure(0, weight=1)
-    statsWindow.rowconfigure(0, weight=1)
+    covstats = wgse.BAM.coverage
+    WESstats = wgse.BAM.coverage_WES
 
     font = wgse.fonts.table
     fontti = font['18b']        # Title font for each frame
@@ -506,6 +759,16 @@ def result_window_stats(covstats, WESstats):
     fontb1 = font['14']         # Body font
     fontb2 = font['13']         # Special for by-chr body only
     fontb3 = font['12']         # special for date/time/prog_version; by name table entries
+
+    # wgse.window.withdraw()        # Maybe hide main window while displaying stats? Turned off for now
+    statsWindow = Toplevel(wgse.window)
+    statsWindow.transient(wgse.window)
+    statsWindow.title(wgse.lang.i18n['BamFileStatistics'])
+    statsWindow.geometry(wgse.bamstats_winsize + offset(wgse.window.geometry(), 50))
+    statsWindow.protocol("WM_DELETE_WINDOW", lambda win=statsWindow: button_close(win))
+    statsWindow.iconbitmap(wgse.icon_oFP) if wgse.os_plat == "Windows" else ''
+    statsWindow.columnconfigure(0, weight=1)
+    statsWindow.rowconfigure(0, weight=1)
 
     # Setup by-Chromosome Frame (main table, left)
     byChromFrame = LabelFrame(statsWindow, text=wgse.lang.i18n['FrameByRefSeqName'], font=fontti)
@@ -517,9 +780,12 @@ def result_window_stats(covstats, WESstats):
     summaryFrame = LabelFrame(statsWindow, text=wgse.BAM.disp_FBS, font=fontti)
     summaryFrame.grid(row=0, column=1, padx=5, pady=2)
 
+    # ---------------------------------------------------------------------------------------------------------------
+    # by Reference Sequence summary table at left
+
     # Header for by-Chromosome table
-    table_header1 = ['RefSeqName', 'LenInModel', 'NCntInModel', 'ReadSegsMap', 'MappedGbases', 
-                     'MapAvgReadDepthNoNShort', 'Coverage']  # Moved Coverage button to summary area; always label here
+    table_header1 = ['RefSeqName', 'LenInModel', 'NCntInModel', 'ReadSegsMap', 'MappedGbases',
+                     'MapAvgReadDepthNoNShort', 'Coverage']  # Moved Coverage button to summary area; label still here
     for col in range(len(table_header1)):   # Double row in grid using rowspan;  2x high using \n in label text
         Label(byChromFrame, text=wgse.lang.i18n[table_header1[col]],
               font=fonth1).grid(column=col, row=0, rowspan=2, padx=5, pady=0)
@@ -573,18 +839,10 @@ def result_window_stats(covstats, WESstats):
             Label(byChromFrame, text=val, font=fonth1 if total_row else fontb2,
                   width=width, anchor="e").grid(column=col, row=row+2, padx=0, pady=0)      # Was 10, 0
 
-    # Prepare some values for summary frame
-    read_type = wgse.lang.i18n['PairedEnd'] if wgse.BAM.ReadType == "Paired" else \
-                wgse.lang.i18n['SingleEnd'] if wgse.BAM.ReadType == "Single" else ""
-    read_length_str = (f'{wgse.BAM.avg_read_length:,.0f} {wgse.lang.i18n["bp"]}, '
-                       f'{wgse.BAM.avg_read_stddev:,.0f} {wgse.lang.i18n["StdDev"]}, {read_type}')
-    if wgse.BAM.ReadType == "Paired":
-        insert_size_str = (f'{wgse.BAM.insert_size:,.0f} {wgse.lang.i18n["bp"]}, '
-                           f'{wgse.BAM.insert_stddev:,.0f} {wgse.lang.i18n["StdDev"]}')
-    else:
-        insert_size_str = f'({wgse.lang.i18n["SingleEnd"]})'
+    # ---------------------------------------------------------------------------------------------------------------
+    # Overall stats summary Frame at right
 
-    # Summary Frame to right, top section: Mapped / Raw
+    # Summary Frame top section: Mapped / Raw differentiated stats
     crow = 0
     Label(summaryFrame, text=wgse.lang.i18n['Mapped'].upper(), font=fonth1).grid(row=crow, column=1, padx=0, pady=0)
     Label(summaryFrame, text=wgse.lang.i18n['Raw'].upper(), font=fonth1).grid(row=crow, column=3, padx=0, pady=0); crow += 1
@@ -628,9 +886,10 @@ def result_window_stats(covstats, WESstats):
 
     Label(summaryFrame, text="", font=fontb1).grid(row=crow, column=0, columnspan=4, padx=0, pady=0); crow += 1
 
-    # Summary Frame to right, second section; Other misc values
-    if wgse.BAM.Primary:   # Only display coverage button and stats if chromosomes or mito exist
-        Button(summaryFrame, text=wgse.lang.i18n['CoverageShort'], justify=LEFT, bg='#ffb3fe',
+    # Summary Frame middle section: Coverage buttons / stats
+    if wgse.BAM.Primary:   # Only display coverage button and stats if primaries exist (could be unmapped only BAM)
+        bg = pink if not covstats else wgse.defbut_bg
+        Button(summaryFrame, text=wgse.lang.i18n['CoverageShort'], justify=LEFT, bg=bg,
                command=lambda win=statsWindow: button_statsbin_BAM(win, "WGS"),
                font=fonth1).grid(row=crow, column=0, padx=0, pady=0, sticky=W)
         if covstats:
@@ -638,14 +897,34 @@ def result_window_stats(covstats, WESstats):
                   font=fontb1).grid(row=crow, column=1, columnspan=3, padx=0, pady=0)
         crow += 1
 
+        bg = pink if not WESstats else wgse.defbut_bg
         labeltext = 'CoveragePozShort' if wgse.BAM.Yonly else 'CoverageWESShort'
-        Button(summaryFrame, text=wgse.lang.i18n[labeltext], justify=LEFT, bg='#ffb3fe',
+        Button(summaryFrame, text=wgse.lang.i18n[labeltext], justify=LEFT, bg=bg,
                command=lambda win=statsWindow: button_statsbin_BAM(win, "WES"),
                font=fonth1).grid(row=crow, column=0, padx=0, pady=0, sticky=W)
         if WESstats:
             Label(summaryFrame, text='{:8.4f} %'.format(round(wgse.BAM.coverage_WES * 100, 4)),
                   font=fontb1).grid(row=crow, column=1, columnspan=3, padx=0, pady=0); crow += 1
         crow += 1
+
+    # Summary Frame bottom section: Misc values
+
+    # Prepare some strings first
+    read_type = wgse.lang.i18n['PairedEnd'] if wgse.BAM.ReadType == "Paired" else \
+        wgse.lang.i18n['SingleEnd'] if wgse.BAM.ReadType == "Single" else ""
+
+    read_length_str = (f'{wgse.BAM.avg_read_length:,.0f} {wgse.lang.i18n["bp"]} {chr(0xB1)} '
+                       f'{wgse.BAM.avg_read_stddev:,.0f} , {read_type}')
+
+    if wgse.BAM.ReadType == "Paired":
+        insert_size_str = (f'{wgse.BAM.insert_size:,.0f} {wgse.lang.i18n["bp"]} {chr(0xB1)} '
+                           f'{wgse.BAM.insert_stddev:,.0f}')
+    else:
+        insert_size_str = f'({wgse.lang.i18n["SingleEnd"]})'
+
+    map_quality_str = f'Q{wgse.BAM.mapq:.0f} {chr(0xB1)} {wgse.BAM.mapq_stddev:,.0f}'
+    base_quality_str = f'{wgse.BAM.pup_q30:.0%} >Q30 ; {wgse.BAM.pup_q20:.0%} >Q20'
+
 
     Label(summaryFrame, text=wgse.lang.i18n['RefModel'], justify=LEFT,
           font=fonth1).grid(row=crow, column=0, padx=0, pady=0, sticky=W)
@@ -660,6 +939,21 @@ def result_window_stats(covstats, WESstats):
     Label(summaryFrame, text=wgse.lang.i18n['AverageInsertSize'], justify=LEFT,
           font=fonth1).grid(row=crow, column=0, padx=0, pady=0, sticky=W)
     Label(summaryFrame, text=insert_size_str,
+          font=fontb1).grid(row=crow, column=1, columnspan=3, padx=0, pady=0); crow += 1
+
+    Label(summaryFrame, text=wgse.lang.i18n['DupsPercent'], justify=LEFT,
+          font=fonth1).grid(row=crow, column=0, padx=0, pady=0, sticky=W)
+    Label(summaryFrame, text=f'{wgse.BAM.dups_percent:.1%}',
+          font=fontb1).grid(row=crow, column=1, columnspan=3, padx=0, pady=0); crow += 1
+
+    Label(summaryFrame, text=wgse.lang.i18n['QualityMap'], justify=LEFT,
+          font=fonth1).grid(row=crow, column=0, padx=0, pady=0, sticky=W)
+    Label(summaryFrame, text=map_quality_str,
+          font=fontb1).grid(row=crow, column=1, columnspan=3, padx=0, pady=0); crow += 1
+
+    Label(summaryFrame, text=wgse.lang.i18n['QualityBase'], justify=LEFT,
+          font=fonth1).grid(row=crow, column=0, padx=0, pady=0, sticky=W)
+    Label(summaryFrame, text=base_quality_str,
           font=fontb1).grid(row=crow, column=1, columnspan=3, padx=0, pady=0); crow += 1
 
     Label(summaryFrame, text=wgse.lang.i18n['Chroms'], justify=LEFT,
@@ -685,9 +979,11 @@ def result_window_stats(covstats, WESstats):
     Button(summaryFrame, text=wgse.lang.i18n['SaveWindow'], font=fonth1,
            command=lambda win=statsWindow: button_save(win, "stats")).grid(row=crow, column=0, padx=5, pady=2)
     Button(summaryFrame, text=wgse.lang.i18n['CloseWindow'], font=fonth1,
-           command=lambda win=statsWindow: button_close(win)).grid(row=crow, column=1, columnspan=3, padx=5, pady=2); crow += 1
+           command=lambda win=statsWindow: button_close(win)
+           ).grid(row=crow, column=1, columnspan=3, padx=5, pady=2); crow += 1
 
-    Label(summaryFrame, text=wgse.lang.i18n['StatsNote'], font=fontb3).grid(row=crow, column=0, columnspan=4, padx=0, pady=0); crow += 1
+    Label(summaryFrame, text=wgse.lang.i18n['StatsNote'], font=fontb3
+          ).grid(row=crow, column=0, columnspan=4, padx=0, pady=0); crow += 1
 
     Label(summaryFrame, text=f'{time.ctime()};  WGSE {wgse.__version__}', justify=CENTER,
           font=fontb3).grid(row=crow, column=0, columnspan=4, padx=0, pady=0); crow += 1
@@ -704,24 +1000,12 @@ def result_window_binstats(window, bamtype="WGS"):
     Note that WES uses the TotalBC sequence length and not the reference model value (which includes Ns).
     Similar to result_window_stats() call.
     """
-    global binstatsWindow
+    global binstatsWindow, font
 
     if (bamtype == "WGS" and not wgse.BAM.coverage) or \
        (bamtype == "WES" and not wgse.BAM.coverage_WES):
         # Todo generate error pop-up instead of silent return?  Call to display stats that are not available.
         return
-
-    stats_bin = wgse.BAM.stats_bin if bamtype == "WGS" else wgse.BAM.stats_binwes
-
-    # wgse.window.withdraw()        # Maybe hide main window while displaying stats? Turned off for now
-    binstatsWindow = Toplevel(window)
-    binstatsWindow.transient(window)
-    binstatsWindow.title(wgse.lang.i18n['BamFileStatistics'])
-    binstatsWindow.geometry(wgse.bamstats_winsize)
-    binstatsWindow.protocol("WM_DELETE_WINDOW", lambda win=binstatsWindow: button_close(win))
-    binstatsWindow.iconbitmap(wgse.icon_oFP) if wgse.os_plat == "Windows" else ''
-    binstatsWindow.columnconfigure(0, weight=1)
-    binstatsWindow.rowconfigure(0, weight=1)
 
     font = wgse.fonts.table
     fontti = font['18b']  # Title font for each frame
@@ -729,6 +1013,18 @@ def result_window_binstats(window, bamtype="WGS"):
     fontb1 = font['14']  # Body font
     fontb2 = font['13']  # Special for by-chr body only
     fontb3 = font['12']  # special for date/time/prog_version; by name table entries
+
+    stats_bin = wgse.BAM.stats_bin if bamtype == "WGS" else wgse.BAM.stats_binwes
+
+    # wgse.window.withdraw()        # Maybe hide main window while displaying stats? Turned off for now
+    binstatsWindow = Toplevel(window)
+    binstatsWindow.transient(window)
+    binstatsWindow.title(wgse.lang.i18n['BamFileStatistics'])
+    binstatsWindow.geometry(wgse.bamstats_winsize + offset(window.geometry(), 50))
+    binstatsWindow.protocol("WM_DELETE_WINDOW", lambda win=binstatsWindow: button_close(win))
+    binstatsWindow.iconbitmap(wgse.icon_oFP) if wgse.os_plat == "Windows" else ''
+    binstatsWindow.columnconfigure(0, weight=1)
+    binstatsWindow.rowconfigure(0, weight=1)
 
     # Setup by-Chromosome Frame (main table, left)
     frame_name = 'FrameBinCov' if bamtype == "WGS" else 'FrameBinCovWES'    # Todo account for POZ vs WES
@@ -847,7 +1143,7 @@ def button_statsbin_BAM(window, bamtype="WGS"):    # button local to result_wind
 
     result_window_binstats(window, bamtype)
 
-    if not stats_found:              # New stats will update the main Stats Window so regenerate
+    if not stats_found:        # New stats will update the main Stats Window so regenerate
         try:
             window.destroy()   # Remove the current stats window (left open while calculating the new one)
         except:
@@ -910,14 +1206,14 @@ def _adjust_mem_threads(file_size, file_type, sort_type):
         return "0M", 0
 
     # Let user know how much free file space we need; giving them a chance to make it available or cancel out
-    app = f'{sort_type} Sort'
-    isize = file_size * cram_mult / 10**9               # Nominal size of final BAM (in GB)
-    tempsize = str(int(isize * name_mult + isize))      # Size of raw BAM from aligner + coord sorted BAM pre-final (GB)
-    outsize = str(int(isize))                           # Size of final BAM (assume BAM always for worst case) (GB)
-    message = wgse.lang.i18n["infoFreeSpace"].replace(
-        "{{APP}}", app).replace("{{SIZE}}", tempsize).replace("{{FINAL}}", outsize)
-    if not wgse_message("okcancel", "infoFreeSpaceTitle", True, message):
-        return "0M", 0
+    # app = f'{sort_type} Sort'
+    # isize = file_size * cram_mult / 10**9               # Nominal size of final BAM (in GB)
+    # tempsize = str(int(isize * name_mult + isize))      # Size of raw BAM from aligner + coord sorted BAM pre-final (GB)
+    # outsize = str(int(isize))                           # Size of final BAM (assume BAM always for worst case) (GB)
+    # message = wgse.lang.i18n["infoFreeSpace"].replace(
+    #    "{{APP}}", app).replace("{{SIZE}}", tempsize).replace("{{FINAL}}", outsize)
+    # if not wgse_message("okcancel", "infoFreeSpaceTitle", True, message):
+    #    return "0M", 0
 
     cur_mpt = wgse.os_totmem // wgse.os_threads     # note: os_mem is a string and in millions; this is in bytes
 
@@ -950,7 +1246,13 @@ def button_sort_BAM():
     """
         Recreate BAM in coordinate sorted format. This is an exception where generated data is put where the current
         BAM file is; not in the output or temp directory.  We will use the sorted BAM going forward.
+        Button is not available to the user unless the BAM is unsorted.
     """
+
+    if wgse.BAM.Sorted is None:         # Unaligned BAM cannot have stats or sort commands run on it
+        wgse_message("error", 'errUnalignedBAMTitle', False, 'errUnalignedBAM')
+        return
+
     samtools = wgse.samtoolsx_qFN
     bamfile  = wgse.BAM.file_qFN
     tempdir  = f'"{wgse.tempf.FP}"'
@@ -964,7 +1266,7 @@ def button_sort_BAM():
     suffix = ".cram" if wgse.BAM.file_type == "CRAM" else ".bam"
     out_qFN = f'"{out_FPB}{suffix}"'
 
-    if wgse.BAM.file_type == "CRAM" and wgse.reflib.missing_refgenome(wgse.BAM.Refgenome_qFN):
+    if wgse.reflib.missing_refgenome(wgse.BAM.Refgenome_qFN, required=wgse.BAM.file_type == "CRAM"):
         mainwindow_resume()
         return      # Check routine reports error if reference does not exist
 
@@ -1006,7 +1308,8 @@ def button_index_BAM():
         wgse.BAM.Indexed = True
         # For BAMs, run Stats (internal only) now that Index is available (saves clicking Stats button; only 1 sec)
         try:
-            wgse.BAM.get_samtools_idxstats(button_directly=False)
+            if wgse.BAM.Sorted is not None:     # Cannot run stats on an Unaligned BAM
+                wgse.BAM.get_samtools_idxstats(button_directly=False)
         except:  # Error generating idxstats file when tried
             pass    # No need to report issue. Just trying an internal convenience run
         set_BAM_window_settings()  # If index became available, change its buttons state. As well as any stats filled in
@@ -1023,7 +1326,7 @@ def button_CRAM_to_BAM():
     """
     # CRAM decode requires reference genome be specified with VIEW command
     cram_opt = f'-T {wgse.BAM.Refgenome_qFN}' if wgse.BAM.file_type == "CRAM" else ""
-    if wgse.BAM.file_type == "CRAM" and wgse.reflib.missing_refgenome(wgse.BAM.Refgenome_qFN):
+    if wgse.reflib.missing_refgenome(wgse.BAM.Refgenome_qFN, required=wgse.BAM.file_type == "CRAM"):
         mainwindow_resume()
         return      # Check routine reports error if reference does not exist
 
@@ -1069,7 +1372,7 @@ def button_BAM_to_CRAM():
 
     run_bash_script("BAMtoCRAM", commands)
 
-    set_BAM_file(CRAM_FN)   # Replace selected CRAM and garbage collect old one
+    set_BAM_file(CRAM_FN)   # Replace wuth new CRAM and garbage collect old one
 
     mainwindow_resume()
 
@@ -1081,27 +1384,315 @@ def button_realign_BAM(paired_BAM=True):
         reference model.  This button is fixed to do to/from Build 37/38 only of the same class model.
         All functionality pushed into the button_align_command..
     """
-    cpus = wgse.os_threads
-    wgse_message("warning", "RealignBAMTimeWarnTitle", True,
-                 wgse.lang.i18n["RealignBAMTimeWarnMesg"].replace("{{time}}", str(5+160/cpus)))
+    def _realign_exit(success=False):
+        wgse.BAM = save_BAM if not success else ""     # Already posted message before call
+        mainwindow_resume()
+        return success
 
     save_BAM = wgse.BAM     # Will save current (if it exists) and let it garbage collect on exit if replaced
 
-    # Need FASTQs (unaligned) so simply make button call. Returns FASTQs set in wgse.BAM.Rxfastq variables
-    # Will check if already exist and simply return (FALSE; as did not have to make them) if found.
-    made_new_fastqs = button_unalign_BAM(inRealign=True)
+    # Run ask align parameters now simply to confirm what will be used. This way, is at the start and the
+    # computer can be left alone to complete this job without interruption. Will update info in current BAM
+    # but wipe out if fails when we restore the saved BAM.
+    confirmed, fastqs, new_refgenome, newBAM_oFN = ask_align_params(inRealign=True, inAlign=False)
+    if not confirmed:
+        return _realign_exit(success=False)
 
-    # This is an 8 hour to 6 day job; split into parts
-    made_new_BAM = button_align_BAM(inRealign=True)  # Will replace newly created BAM/CRAM
+    # Todo need to pass along possibly modified values (not just confirmed)?
+
+    time_expected = str(5+160/wgse.os_threads)
+    wgse_message("warning", "RealignBAMTimeWarnTitle", True,
+                 wgse.lang.i18n["RealignBAMTimeWarnMesg"].replace("{{time}}", time_expected))
+
+    # Need FASTQs (unaligned) so simply make button call. Returns FASTQs in wgse.BAM.Rxfastq variables
+    # Will check if already exist and return FALSE for made_new if so.
+    fastqs_exist, made_new_fastqs = button_unalign_BAM(inRealign=True)
+    if not fastqs_exist:
+        return _realign_exit(success=False)
+
+    # This is an 8 hour to 6 day job; split into parts in the routine
+    made_new_BAM = button_align_BAM(inRealign=True)  # Will automatically load newly created BAM/CRAM
 
     # If successfully replaced BAM and made new FASTQs as part of it; then delete FASTQs
     if made_new_fastqs and made_new_BAM and wgse.BAM and save_BAM and wgse.BAM != save_BAM:
         wgse.tempf.list.append(nativeOS(save_BAM.R1fastq_FN));  save_BAM.R1fastq_FN = None
         wgse.tempf.list.append(nativeOS(save_BAM.R2fastq_FN));  save_BAM.R2fastq_FN = None
-    # Now will garbage collect old BAM (save_BAM) when exiting here as only stored in local name
-    # No need to set the FASTQ file names to none; just leaving it as a reminder.
+        save_BAM = None     # Garbage collect old BAM class structure
 
-    mainwindow_resume()
+    return _realign_exit(success=True)
+
+
+def enough_free_space_align(fastq_size, newBAM_FS="BAM", fastq_exist=False, report=False):
+    """ FASTQ is total size of both, if paired-end. """
+    # If fastqs do not yet exist, then they are about to be created; so add their size to the outneed
+    mult = 2 if fastq_exist else 3
+
+    bam_size = int(fastq_size)                                      # Nominal size of final BAM
+    cram_size = int(bam_size / 2 if newBAM_FS == ".cram" else 0)    # Additional size if creating a CRAM after
+    tempneed = int(round( bam_size * 6 / 10**9, 0))    # Coordinate sort needs fully uncompressed BAM in temp file area
+    outneed = int(round( (bam_size * mult + cram_size) / 10**9, 0))    # Size of RAW, final BAM, & final CRAM
+
+    ofree = int(round(wgse.outdir.update_free() / 10**6, 0)) if wgse.outdir.FP else 10**7      # 10 TB if not set yet
+    tfree = int(round(wgse.tempf.update_free() / 10**6, 0))
+    samedisk = tfree == ofree       # Get rough MB to check if the same; will need many GB
+
+    ofree = int(round(ofree / 10**3, 0))    # Convert to GB
+    tfree = int(round(tfree / 10**3, 0))
+
+    ostr = f'{outneed:,} GB'
+    tstr = f'{tempneed:,} GB'
+
+    DEBUG(f"Alignment Free Disk Check: Temp and Outdir same? {samedisk}; \n"
+          f"\t\ttemp dir: {tfree:,} GB avail vs {tstr} needed; \n"
+          f"\t\tout dir: {ofree:,} GB avail vs {ostr} needed")
+
+    enough = (tempneed + outneed) < tfree if samedisk else tempneed < tfree and outneed < ofree
+    if report and not enough:
+        outneed = f'{outneed} GB'              # Converted to GB string
+        tempneed = f'{tempneed} GB'            # Converted to GB string
+        message = wgse.lang.i18n["infoFreeSpace"].replace(
+            "{{APP}}", "Align").replace("{{SIZE}}", tstr).replace("{{FINAL}}", ostr)
+        if wgse_message("okcancel", "infoFreeSpaceTitle", True, message):
+            enough = True   # User told us to proceed anyway; or maybe made the space available (no recheck)
+
+    return enough, tempneed, outneed
+
+
+def ask_align_params(inRealign=False, inAlign=False):
+    """
+    GUI pop-up to set the parameters for an alignment. As well as indicate if there is enough free space.
+    Will be called even from the Realign command (but pre-filled with all the values). When a FASTQ file
+    name is selected, and if the Output Directory is not yet selected, a default outdir will be created and used
+    just as happens when loading a BAM file. Any BAM File with a path is stripped of the path. The BAM file will
+    always be in the output directory. If a fastq and refgenome are selected before a bamfile by the user,
+    a default bamfile name (with .cram extension) is constructed and displayed to make it easier for the user.
+    """
+
+    # Local function to enable setting of local variables; should we change to a class?
+    def setting_click(action, **args):
+        nonlocal fastq1, fastq2, refgen, bamfile, bamset, fastq_good
+
+        # Do not allow values to be changed if inRealign
+        result = action(**args)     # Execute action specified with args
+
+        if action.__name__ == "ask_fastq_to_align":
+            fastq1 = result[0] if len(result) > 0 else ""
+            fastq2 = result[1] if len(result) > 1 else ""
+            fastq_good = update_fastq_labels()
+
+            # Like for BAM, setup a default outdir if not yet set based on the fastq1 file location
+            if wgse.outdir and not wgse.outdir.user_set and fastq1:
+                wgse.outdir.new_default(os.path.dirname(fastq1))
+
+            update_needed_space() if fastq1 else ""
+
+            # if no bamfile set, then set a default bamfile for the user (they can always override; default is cram)
+            if fastq1 and wgse.outdir and wgse.outdir.FP and not bamset:
+                bambase = _name_from_FASTQ(os.path.basename(fastq1))
+                bamfile = f'{wgse.outdir.FP}{bambase}.cram'
+                if refgen:
+                    bamfile = mod_bamfile_with_refgen(bamfile)
+                newbamSelectLabel.configure(text=os.path.basename(bamfile))
+                # Still default so do not set bamset
+
+        elif action.__name__ == "ask_refgenome":
+            # Note: do not require the refgen file be available; will query the user to download later
+            refgen = result
+            fgc = maroon if not wgse.reflib.get_refgenome_qFN(refgen) else wgse.deflab_fg
+            refgenSelectedLabel.configure(text=refgen, fg=fgc)
+
+            # If BAM not set by user and a default value; then modify the default for the new refgenome selected
+            if not bamset and bamfile:
+                bamfile = mod_bamfile_with_refgen(bamfile)
+                newbamSelectLabel.configure(text=os.path.basename(bamfile))
+
+        elif action.__name__ == "ask_BAM_filename":
+            bamfile = result
+            base = os.path.basename(bamfile)
+            base, ext = os.path.splitext(base)
+            newbamSelectLabel.configure(text=base)
+            bamset = True       # Once set by a user; no longer update the "default" value
+
+            # If no outdir set yet, try to set a default based on the fastq1 file location
+            if fastq1 and wgse.outdir and not (wgse.outdir.user_set or wgse.outdir.FP):
+                wgse.outdir.new_default(os.path.dirname(fastq1))
+
+            # Even if user set a path for the bamfile, we want to override and put it in the outdir
+            if wgse.outdir and wgse.outdir.FP:
+                bamfile = f'{wgse.outdir.FP}{base}'    # Put new BAM file in an existing outdir
+
+            if ext == ".CRAM":
+                update_needed_space()       # Need increases if user specified a CRAM
+
+        # Only enable the confirm button once everything is set correctly; key being fastq's exist for the align
+        if fastq1 and refgen and bamfile and (fastq_good if not inRealign else True):
+            confirmedButton.configure(state="normal")
+
+        askAlignWindow.update()
+
+    def ask_confirm():
+        nonlocal confirmed
+        # We only make the confirmed button available when everything is OK, so just close window
+        try:
+            askAlignWindow.destroy()
+        except:
+            pass
+        confirmed = True
+
+    def ask_cancel():
+        try:
+            askAlignWindow.destroy()
+        except:
+            pass
+
+    def check_fastq(fastq):
+        return fastq and os.path.exists(fastq) and os.path.isfile(fastq) and os.path.getsize(fastq) > 200 * 10*6
+
+    def update_fastq_labels():
+        nonlocal fastq1, fastq2
+
+        fq1_good = False
+        fq2_good = False
+
+        if fastq1:
+            fq1_good = check_fastq(fastq1)
+            color = red if not inRealign else maroon      # if inRealign, fastq not required (so pink)
+            fg1 = color if not fq1_good else wgse.deflab_fg
+            fastqSelectedLabel1.configure(text=os.path.basename(fastq1), fg=fg1)
+
+        if fastq2:
+            fq2_good = check_fastq(fastq2)
+            color = red if not inRealign else maroon      # if inRealign, fastq not required (so pink)
+            fg2 = color if not fq2_good else wgse.deflab_fg
+            fastqSelectedLabel2.configure(text=os.path.basename(fastq2), fg=fg2)
+
+        return fastq1 and fq1_good and (fq2_good if fastq2 else False)
+
+    def update_needed_space():
+        bamfile_FS = os.path.splitext(os.path.basename(bamfile))[1] if bamfile else "BAM"
+
+        # Set the fastq size as all additional needed space is based on that.
+        fsize = (os.path.getsize(fastq1) if fastq1 and os.path.exists(fastq1) and os.path.isfile(fastq1) else 0) + \
+                (os.path.getsize(fastq2) if fastq2 and os.path.exists(fastq2) and os.path.isfile(fastq2) else 0)
+
+        # If inRealign and FASTQs have not yet been created, estimate fsize from the curent BAM size
+        fastq_exist = fsize > 0
+        fsize = wgse.BAM.file_stats.st_size if inRealign and wgse.BAM and fsize == 0 else fsize
+
+        enough, tneed, oneed = enough_free_space_align(fsize, bamfile_FS, fastq_exist, report=False)
+        needfg = maroon if not enough else wgse.deflab_fg
+        tneedLabel.configure(text=f'Temp: {tneed} GB', fg=needfg)
+        oneedLabel.configure(text=f'OutDir: {oneed} GB', fg=needfg)
+
+        return enough
+
+    def mod_bamfile_with_refgen(bfile):
+        # Modify the default bamfile value to have a new refgen code (or replace one that may be there)
+        found = False
+        codes = wgse.reflib.refgenome_codes()
+        for code in codes:
+            if f'_{code}' in bfile:  # Do even if refgen = code so sets found=true
+                bfile.replace(code, refgen)
+                found = True
+                break       # Only replaces one hyphenated _refgen code in the original fastq name; not if 2 or more
+
+        # If not found, then lets add the refgen code to the name so we do not clobber an existing with the default
+        if not found:
+            base, ext = os.path.splitext(bfile)
+            bfile = f'{base}_{refgen}{ext}'
+
+        return bfile
+
+    # Set initial / seed values based on loaded BAM (if any)
+    if wgse.BAM:
+        if not wgse.BAM.R1fastq_FN:
+            wgse.BAM.find_and_set_FASTQs(inRealign=True)        # If in realign, always set BAM.Rxfastq_FN on return
+        fastq1, fastq2 = [wgse.BAM.R1fastq_FN, wgse.BAM.R2fastq_FN]
+    else:
+        fastq1, fastq2 = ["", ""]
+    refgen, _ = wgse.reflib.refgen_liftover(wgse.BAM.Refgenome) if wgse.BAM and wgse.BAM.Refgenome else ("", 0)
+    bamfile = wgse.BAM.realign_BAM_filename(refgen) if refgen else ""
+
+    # If ..., then return default parameters as they were confirmed in the Realign call to this routine
+    if inRealign and inAlign:
+        return True, [fastq1, fastq2], refgen, bamfile
+
+    bamset = True if bamfile else False
+    confirmed = False       # Set when confirmed button hit and all is good. Button only enabled once everything is set.
+    fastq_good = False      # Purely for not inRealign as FASTQs must exist, be large enough, etc.
+    free_good = False       # TO indicate if not enough free space; but use as advisory for now
+
+    # ---------- Start of main window creation to Confirm and possibly adjust values ---------------------------------
+
+    # wgse.window.withdraw()        # Maybe hide main window while displaying stats? Turned off for now
+    askAlignWindow = Toplevel(wgse.window)
+    askAlignWindow.transient(wgse.window)
+    askAlignWindow.title(wgse.lang.i18n['AskAlignTitle'])
+    askAlignWindow.geometry(offset(wgse.window.geometry(), 50))
+    askAlignWindow.protocol("WM_DELETE_WINDOW", ask_cancel)
+    askAlignWindow.iconbitmap(wgse.icon_oFP) if wgse.os_plat == "Windows" else ''
+    askAlignWindow.columnconfigure(0, weight=1)
+    askAlignWindow.rowconfigure(0, weight=1)
+
+    Label(askAlignWindow, text=f"{wgse.lang.i18n['AskAlign']}",
+          font=font['14b']).grid(row=0, column=0, columnspan=3, padx=5, pady=2); crow = 1
+
+    fastqSelectButton = Button(askAlignWindow, text=wgse.lang.i18n['SelectFASTQFiles'], font=font['14'],
+                               command=partial(setting_click, ask_fastq_to_align))
+    fastqSelectButton.grid(column=0, row=crow, padx=5, pady=2, rowspan=2, sticky=W)
+    fastqSelectedLabel1 = Label(askAlignWindow, text="", font=font['14'])
+    fastqSelectedLabel1.grid(column=1, row=crow, padx=5, pady=2, columnspan=2); crow += 1
+    fastqSelectedLabel2 = Label(askAlignWindow, text="", font=font['14'])
+    fastqSelectedLabel2.grid(column=1, row=crow, padx=5, pady=2, columnspan=2); crow += 1
+
+    fastq_good = update_fastq_labels()
+
+    fgc = maroon if not wgse.reflib.installed_refgenome(ref_genome=refgen) else wgse.deflab_fg
+    refgenSelectButton = Button(askAlignWindow, text=wgse.lang.i18n['SelectReferenceGenome'], font=font['14'],
+                                command=partial(setting_click, ask_refgenome, inBAM=False, window=askAlignWindow))
+    refgenSelectButton.grid(column=0, row=crow, padx=5, pady=2,  sticky=W)
+    refgenSelectedLabel = Label(askAlignWindow, text=refgen, font=font['14'], fg=fgc)
+    refgenSelectedLabel.grid(column=1, row=crow, padx=5, pady=2, columnspan=2); crow += 1
+
+    bam_base = os.path.basename(bamfile) if bamfile else ""
+
+    newbamSelectButton = Button(askAlignWindow, text=wgse.lang.i18n['SelectBamFile'], font=font['14'],
+                                command=partial(setting_click, ask_BAM_filename, new=True))
+    newbamSelectButton.grid(column=0, row=crow, padx=5, pady=2, sticky=W)
+    newbamSelectLabel = Label(askAlignWindow, text=bam_base, font=font['14'])
+    newbamSelectLabel.grid(column=1, row=crow, padx=5, pady=2, columnspan=2); crow += 1
+
+    Label(askAlignWindow, text=wgse.lang.i18n['DiskSpaceNeeded'], font=font['14']
+          ).grid( column=0, row=crow, padx=5, pady=2)
+    tneedLabel = Label(askAlignWindow, text=f'Temp: 0 GB', font=font['14'], fg=wgse.deflab_fg)
+    tneedLabel.grid(column=1, row=crow, padx=5, pady=2,)
+    oneedLabel = Label(askAlignWindow, text=f'OutDir: 0 GB', font=font['14'], fg=wgse.deflab_fg)
+    oneedLabel.grid(column=2, row=crow, padx=5, pady=2); crow += 1
+
+    free_good = update_needed_space()        # if inRealign, know the needed sizes already
+
+    Button(askAlignWindow, text=wgse.lang.i18n['Cancel'], font=font['14'],
+           command=ask_cancel).grid(row=crow, column=1, padx=5, pady=2)
+    confirmedButton = Button(askAlignWindow, text=wgse.lang.i18n['Confirm'], font=font['14'],
+                             state="disabled", command=ask_confirm)
+    confirmedButton.grid(row=crow, column=2, padx=5, pady=2); crow += 1
+
+    # Enable confirmed button if all three initial values have a default
+    if bamfile and refgen and fastq1 and (fastq_good if not inRealign else True):
+        confirmedButton.configure(state="normal")
+
+    # Do not allow values to be changed in a realign; simply confirm
+    if inRealign:
+        fastqSelectButton.configure(state="disabled")
+        refgenSelectButton.configure(state="disabled")
+        newbamSelectButton.configure(state="disabled")
+
+    # Display and wait for Confirm or Close button
+    askAlignWindow.update()
+    askAlignWindow.grab_set()          # Toplevel equivalent of mainloop
+    askAlignWindow.wait_window()
+
+    return confirmed, [fastq1, fastq2], refgen, bamfile
 
 
 def button_align_BAM(inRealign=False):
@@ -1123,130 +1714,88 @@ def button_align_BAM(inRealign=False):
         https://www.htslib.org/workflow/ (first section on FASTQ to BAM/CRAM)
         https://gist.github.com/tkrahn/7dfc51c2bb97a6d654378a21ea0a96d4 (although some he copied from us :)
     """
+
     # Todo should main content be moved to bamfile.py?
 
+    def _align_exit(success=False):
+        wgse.BAM = saveBAM if not success else ""                               # Restore BAM in case removed
+        wgse.outdir.change(saveOutFP, user_set=False) if not success else ""    # Restore (default) Outdir if changed
+        mainwindow_resume() if wgse.window and wgse.dnaImage else ""
+        return success
+
     # CAUTION: Only use wgse.BAM if in reAlign; otherwise may be set but not valid for direct Align button click
-    # A user cannot unset the BAM file setting once set ; so Align button click act as if no BAM file set
-    saveBAM = wgse.BAM
-    if not inRealign and wgse.BAM:       # Null out BAM setting when hit Align button; restore on error before exit
-        wgse.BAM = None
-
-    wsl_mode = wgse.wsl_bwa_patch and wgse.os_plat == "Windows"
-    if wsl_mode:     # if running WSL BWA, need WSL cmd paths
-        bwa = 'wsl bwa'
-        # bgzip = f'"{universalOS(unquote(wgse.bgzipx_qFN), wsl_mode)}"'
-        rg = '"@RG\\\\\\tID:1\\\\\\tSM:WGSE\\\\\\tLB:lb"'     # WSL takes a swipe at escape processing
-        # python = f'"{universalOS(unquote(wgse.python3x_qFN), wsl_mode)}"'
-        # progress = f'{wgse.prog_FP}progress.py'
-        # progress = f'"{universalOS(progress, True)}"'   # Change to WSL format
-    else:
-        bwa = wgse.bwax_qFN
-        rg = '"@RG\\tID:1\\tSM:WGSE\\tLB:lb"'
-
-    bgzip = wgse.bgzipx_qFN
-    # python = wgse.python3x_qFN
-    # progress = f'{wgse.prog_FP}progress.py'
-    samtools = wgse.samtoolsx_qFN
-    minimap2 = wgse.minimap2x_qFN
-    cpus = wgse.os_threads
-    # mem = wgse.os_mem
-
-    # hardcoded value from settings when Linux (arggh)
-    # progress = f'"{universalOS(progress, wgse.wsl_bwa_patch if wgse.os_plat == "Windows" else False)}"'
-    # python = f'"python3"' if wgse.wsl_bwa_patch and wgse.os_plat == "Windows" else wgse.python3x_qFN}
+    saveBAM = wgse.BAM              # Save BAM to restore on error
+    saveOutFP = wgse.outdir.FP      # Save outdir FP to restore on error; Outdir may change to FASTQs path if default
 
     # ---------------------------------------------------------------------------------------------------------------
-    # Determine FASTQs to align from and verify exists
-    if inRealign:       # If in Realign then know where to find FASTQs for current BAM
-        paired = wgse.BAM.ReadType == "Paired"
-        f1_FN = wgse.BAM.R1fastq_FN
-        f2_FN = wgse.BAM.R2fastq_FN if paired else ""
-        aligner = "minimap2" if wgse.BAM and wgse.BAM.long_read else \
-                  "hisat2" if wgse.BAM and "GRCh" in wgse.BAM.Refgenome else \
-                  "bwa"
-    else:               # else in Align button so query user for FASTQs to align
-        fastqs = ask_fastq_to_align()
-        if fastqs:
-            paired = len(fastqs) == 2
-            f1_FN = fastqs[0]
-            f2_FN = fastqs[1] if paired else ""
-        else:
-            f1_FN = f2_FN = ""
-            paired = False
-        aligner = "bwa"     # Todo need FASTQ analysis to determine aligner type in Align-only command
+    # Get and confirm key parameters from the user in a pop-up; if in Realign, do not report an issue
+    confirmed, fastqs, new_refgenome, newBAM_oFN = ask_align_params(inRealign, inAlign=True)
+    if not confirmed:
+        return _align_exit()
+
+    # ---- (1) Process FASTQ file and Related settings --------------------------------------------------
+    # note: if one or both set then ...
+    if fastqs:
+        paired = len(fastqs) == 2 and fastqs[1]
+        f1_FN = fastqs[0]
+        f2_FN = fastqs[1] if paired else ""
+
+    # else null out variables; will pickup and error out later (should not happen as user cannot clear defaults)
+    else:
+        paired = False
+        f1_FN = f2_FN = ""
+
+    DEBUG(f'FASTQ(s) to align: paired? {paired}, {os.path.basename(f1_FN)}, {os.path.basename(f2_FN)}')
+
+    # Cheat and use BAM stats for needed FASTQ stats (if available)
+    if inRealign and saveBAM and saveBAM.Stats:
+        sequencer = saveBAM.Sequencer
+        numsegs_flt = saveBAM.raw_segs_read         # Stored as float as may be greater than 4 GB
+        read_length = saveBAM.avg_read_length
+
+    # Process a FASTQ to get stats; only need one as if paired can double the number of segments
+    else:
+        sequencer, numsegs_flt, read_length = process_FASTQ(f1_FN, paired)
+
+    numsegs = int(round(numsegs_flt, 0))
+    DEBUG(f'Sequencer: {sequencer}, number of segments: {numsegs/10**6} M, read length: {read_length}')
 
     # Setup quoted FASTQ files; note special universal version for WSL needs if using WSL BWA
     f1_oFN = nativeOS(f1_FN)
     f1_quFN = f'"{universalOS(f1_FN, wgse.wsl_bwa_patch if wgse.os_plat == "Windows" else False)}"'
+    f2_oFN = nativeOS(f2_FN) if paired else ""
+    f2_quFN = f'"{universalOS(f2_FN, wgse.wsl_bwa_patch if wgse.os_plat == "Windows" else False)}"' if paired else ""
 
-    if paired and f2_FN:
-        f2_oFN = nativeOS(f2_FN)
-        f2_quFN = f'"{universalOS(f2_FN, wgse.wsl_bwa_patch if wgse.os_plat == "Windows" else False)}"'
-    else:
-        f2_oFN = f2_quFN = ""
-
-    # If not (set and f1_FN exists and (not paired or f2_FN exists); also check large enough
-    if not (f1_FN and os.path.isfile(f1_oFN) and os.path.getsize(f1_oFN) > 1000000 and
-            (not paired or (f2_FN and os.path.isfile(f2_oFN) and os.path.getsize(f2_oFN) > 1000000))):
+    # Finally check that FASTQs are large enough
+    fastq_size = (os.path.getsize(f1_oFN) if os.path.isfile(f1_oFN) else 0) + \
+                 (os.path.getsize(f2_oFN) if paired and os.path.isfile(f1_oFN) else 0)
+    if fastq_size < 200 * 10**6:
         wgse_message("error", 'errFASTQMissingTitle', True,
                      f'{wgse.lang.i18n["errFASTQMissing"]}'.replace("{{f1}}", f1_FN).replace("{{f2}}", f2_FN))
-        wgse.BAM = saveBAM
-        mainwindow_resume() if not inRealign else ""
-        return False
+        return _align_exit()
 
-    # wgse.FASTQ = set_FASTQ_file(f1_oFN, f2_oFN)
-    if inRealign and wgse.BAM.Stats:        # Can cheat and use BAM file for needed FASTQ stats
-        sequencer = wgse.BAM.Sequencer
-        numsegs_flt = wgse.BAM.raw_segs_read
-        read_length = wgse.BAM.avg_read_length
-    else:
-        # Only need to process FASTQ if BAM does not already have (rough) info needed
-        (sequencer, numsegs_flt, read_length) = process_FASTQ(f1_FN, paired)
-    numsegs = int(round(numsegs_flt, 0))
-
-    fastq_size = os.path.getsize(f1_oFN) + (os.path.getsize(f2_oFN) if paired else 0) + 1  # for divide by zero
-    sort_mem, sort_cpus = _adjust_mem_threads(fastq_size, "BAM", "Coord")
-    if sort_cpus == 0:         # Not enough memory to run samtools sort on MacOS; already reported the error
-        wgse.BAM = saveBAM
-        mainwindow_resume() if not inRealign else ""
-        return False
-
-    # ---------------------------------------------------------------------------------------------------------------
-    # Determine Ref Genome file to align too; refgen-liftover if realign; otherwise query user; make sure exists
-    new_refgenome = ""; liftover = False   # To satisfy LINT
-    if inRealign:
-        new_refgenome, new_SNCnt = wgse.reflib.refgen_liftover(wgse.BAM.Refgenome)
-        liftover = True
-    if not inRealign or new_refgenome == "error":       # also in case liftover failed when inRealign
-        new_refgenome, new_SNCnt = wgse.reflib.ask_reference_genome(inBAM=False)
-        liftover = False
+    # ---- (2) Process Reference Genome and related settings ----------------------------------------
     if not new_refgenome or new_refgenome in ["error", "unknown"]:   # Must have refgenome specified; so simply exit
-        wgse.BAM = saveBAM
-        mainwindow_resume() if not inRealign else ""
-        return False
+        wgse_message("error", 'errRefGenNameMissingTitle', False, "errRefGenNameMissing")
+        return _align_exit()
 
+    # Check if reference genome file exists. If not, retrieve if they approve; or pause to give them a chance; or exit
     refgen_qFN = wgse.reflib.get_refgenome_qFN(new_refgenome)
     if wgse.reflib.missing_refgenome(refgen_qFN):
-        # Check routine reports error if reference file does not exist when specified; otherwise simply return
-        wgse.BAM = saveBAM
-        mainwindow_resume() if not inRealign else ""
-        return False
+        # Above reports an error if the reference file does not exist
+        return _align_exit()
+
     refgen_oFN = nativeOS(unquote(refgen_qFN))  # Remove quotes and change to native OS
-    DEBUG(f'Reference Genome File: {refgen_oFN}')
+    DEBUG(f'Reference Genome: {new_refgenome}, File: {os.path.basename(refgen_oFN)}')
 
-    # Special file path handling in universalOS for WSL command line; if needed
-    refgen_quFN = f'"{universalOS(unquote(refgen_qFN), wgse.wsl_bwa_patch if wgse.os_plat == "Windows" else False)}"'
+    aligner = "minimap2" if "Nanopore" in sequencer else \
+              "hisat2"   if "GRCh"     in new_refgenome else \
+              "bwa"
 
-    # ---------------------------------------------------------------------------------------------------------------
-    # Determine output BAM filename for new alignment; if realign then something sensible from old BAM name
-    # (note: need new_refgenome to automatically convert to new BAM filename; so ask only after refgenome determination)
-    newBAM_oFN = wgse.BAM.realign_BAM_filename(new_refgenome) if inRealign and liftover else \
-                 ask_BAM_filename(new=True)  # if Align button, then ask user for filename (path in outdir)
+    # --- (3) Set output BAM filename for new alignment -----------------------------------------------------
     if not newBAM_oFN:
         # Todo report error pop-up before returning here
-        wgse.BAM = saveBAM
-        mainwindow_resume() if not inRealign else ""
-        return False
+        return _align_exit()
 
     # Define the final BAM / CRAM file name
     newBAM_FBS = os.path.basename(newBAM_oFN)
@@ -1261,8 +1810,23 @@ def button_align_BAM(inRealign=False):
     trueBAM_qFN = f'"{trueBAM_FN}"'
     trueBAM_oFN = nativeOS(trueBAM_FN)
 
+    # --- (4) Free File Space Requirements -------------------------------------------------------------------
+    # Check if enough disk and memory free space to accomplish alignment, cleanup and sort
+    cpus = wgse.os_threads
+    # mem = wgse.os_mem
+
+    enough, _, _ = enough_free_space_align(fastq_size, newBAM_FS, fastq_exist=True, report=True)
+    if not enough:
+        # Error reported in above if an issue; if returns false, then not enough space
+        return _align_exit()
+
+    # MacOS has a limitation in samtools sort due to only 255 open files per process. So use separate spec for sort.
+    sort_mem, sort_cpus = _adjust_mem_threads(fastq_size, "BAM", "Coord")   # Reports error if an issue on MacOS
+    if sort_cpus == 0:
+        return _align_exit()
+
     # ---------------------------------------------------------------------------------------------------------------
-    # Setup other file names (intermediate, reports, etc)
+    # Setup other file names (intermediate, reports, etc) and tool paths
 
     # Capture and save markdup report in output directory
     markdup_result_FN = f'"{newBAM_FPB}_markdup.txt"'
@@ -1271,32 +1835,62 @@ def button_align_BAM(inRealign=False):
     outd_rawalign_FN  = f'{wgse.outdir.FP}{newBAM_FB}_raw.bam'
     outd_rawalign_qFN = f'"{outd_rawalign_FN}"'
     outd_rawalign_oFN = nativeOS(outd_rawalign_FN)
-    #outd_rawalign_quFN = f'"{universalOS(outd_rawalign_FN,wsl_mode)}"'
+    # outd_rawalign_quFN = f'"{universalOS(outd_rawalign_FN,wsl_mode)}"'
     outd_sorted_qFN  = f'"{wgse.outdir.FP}{newBAM_FB}_sorted.bam"'
     outd_sorted_oFN = nativeOS(unquote(outd_sorted_qFN))
-    
+
     # For temporary files area in sort and similar commands
     tempdir_qFN  = f'"{wgse.tempf.FP}"'
 
-    # ------------------------------------------------------------------------------------------
-    # (a) Check for Alignment Index files -- reuse or generate if missing
+    # Special adjustments for WSL BWA mode
+    wsl_mode = wgse.wsl_bwa_patch and wgse.os_plat == "Windows"
+    if wsl_mode:     # if running WSL BWA, need WSL cmd paths
+        bwa = 'wsl bwa'
+        rg = '"@RG\\\\\\tID:1\\\\\\tSM:WGSE\\\\\\tLB:lb"'     # WSL takes a swipe at escape processing
+
+        # bgzip = f'"{universalOS(unquote(wgse.bgzipx_qFN), wsl_mode)}"'
+        # python = f'"python3"'
+        # progress = f'"{universalOS(progress, True)}"'   # Change to WSL format
+    else:
+        bwa = wgse.bwax_qFN
+        rg = '"@RG\\tID:1\\tSM:WGSE\\tLB:lb"'
+        # Special file path handling in universalOS for WSL command line; if needed
+
+    refgen_quFN = f'"{universalOS(unquote(refgen_qFN), wsl_mode)}"'
+
+    # Simpified Tool references
+    bgzip = wgse.bgzipx_qFN
+    python = wgse.python3x_qFN
+    progress = f'{wgse.prog_FP}progress.py'
+    samtools = wgse.samtoolsx_qFN
+    minimap2 = wgse.minimap2x_qFN
+
+    prefix = f'/usr/bin/env TZ="" ' if wgse.os_plat == "Windows" else ""
+
+    # --- (a) Alignment Reference Indices ------------------------------------------------------
+    # Check for Alignment Index files -- reuse or generate if missing
     if aligner == "bwa" and os.path.isfile(refgen_oFN + ".bwt") and \
        os.path.getmtime(refgen_oFN + ".bwt") > os.path.getmtime(refgen_oFN):
         DEBUG(f'Using previous BWA Indices for RefGenome: {refgen_qFN}')
+
     elif aligner == "bwa":     # Generate BWA index
         # Index the Reference Genome (note: does not work if EBI Reference genome)
-        commands = f'{bwa} index {refgen_quFN} \n'      # Should we use "-a bwtsw" instead of default "-a is" ?
+        # Todo Should we use "-a bwtsw" instead of default "-a is" ?
+        debug_mode = "DEBUG" if wgse.DEBUG_MODE else ""
+        commands = f'{bwa} index {refgen_quFN} 2> >({prefix} {python} {progress} - 0 {debug_mode} >&2 ) \n'
         run_bash_script("CreateAlignIndices", commands)
+
     elif aligner == "hisat2":
         # Todo If EBI reference model, need to create Hisat2 index?
         pass
+
     elif aligner == "minimap2":
-        # Todo any prep for minimap2 aligner
+        # Todo any prep for minimap2 aligner?  when to use / select
         pass
 
-    # ------------------------------------------------------------------------------------------
-    # (b) Lets do the alignment ... 4 hours to 6+ days depending on the number of CPU cores
-    # todo add picard and GATK markdup function in place of samtools
+    # --- (b) Actual Alignment -----------------------------------------------------------------
+    # 4 hours to 6+ days depending on the number of CPU cores
+    # todo add picard and GATK markdup function in place of samtools (or as option)
     if os.path.isfile(outd_rawalign_oFN) and \
        os.path.getmtime(outd_rawalign_oFN) > os.path.getmtime(f1_oFN) and \
        0.8 < os.path.getsize(outd_rawalign_oFN) / fastq_size < 1.2:
@@ -1304,44 +1898,47 @@ def button_align_BAM(inRealign=False):
     else:
         # Run the alignment command; compress the output simply because it is so large otherwise
         if aligner == "bwa":
-            # If single read, then f2_quFN will be "" ; BWA understands only a single FASTQ file paramter
+            # If single read, then f2_quFN will be "" ; BWA understands if only a single FASTQ file paramter
             # Note: could be wsl bwa or native bwa; appropriate values should be setup ahead of time
             debug_mode = "DEBUG" if wgse.DEBUG_MODE else ""
             commands = (
-                f'{bwa} mem -t {cpus} -R {rg} {refgen_quFN} {f1_quFN} {f2_quFN} |'
-                f'  {bgzip} -@ {cpus} > {outd_rawalign_qFN}\n'
+                f'{bwa} mem -t {cpus} -R {rg} {refgen_quFN} {f1_quFN} {f2_quFN} '
+                f'  2> >({prefix} {python} {progress} - {numsegs} {debug_mode} >&2 ) | '
+                f'   {bgzip} -@ {cpus} > {outd_rawalign_qFN}\n'
             )
-            #   f'  2> >({python} {progress} - {numsegs} {debug_mode}) '
+            #
+
         elif aligner == "minimap2":
             # For long read, go directly to making TrueBAM file (no cleanup step (c)). No ref index file either.
             if sort_cpus == 0:  # Not enough memory for sort; simply return as already reported error
-                mainwindow_resume() if not inRealign else ""
-                return True
+                return _align_exit()
+
             commands = (
-                f'{minimap2} -ax map-ont -t {cpus} {refgen_quFN} {f1_quFN} |' 
+                f'{minimap2} -ax map-ont -t {cpus} {refgen_quFN} {f1_quFN} |'
                 f'  {samtools} sort -T {tempdir_qFN} -m {sort_mem} -@ {sort_cpus} -o {trueBAM_qFN} \n'
                 f'{samtools} index {trueBAM_qFN} \n'
             )
+
         else:   # if aligner == "hisat2":
             # Todo handle hisat2 alignment for GRCh / EBI models; really should error out
             commands = ""
+
         # Todo add pbmm aligner for PacBio HiFi CCS long-read FASTQ files; for reprocessing the T2T / HPP files
         run_bash_script("ButtonAlignBAM", commands)
 
-    # ------------------------------------------------------------------------------------------
-    # (c1) Cleanup (fixmate and coordinate sort)
+    # --- (c1) Cleanup (fixmate, coordinate sort) ----------------------------------------------
     if os.path.isfile(outd_sorted_oFN) and os.path.isfile(outd_rawalign_oFN) and \
        os.path.getmtime(outd_sorted_oFN) > os.path.getmtime(outd_rawalign_oFN) and \
        0.5 < os.path.getsize(outd_rawalign_oFN) / os.path.getsize(outd_sorted_oFN) < 2:
         DEBUG(f'Found previous fixmate and sorted BAM to reuse: {outd_sorted_oFN}')
+
     elif aligner == "bwa":        # Cleanup built into minimap alignment stage
-        # Todo document why using view before fixmate. No CRAM here to require it.
-        # f'{samtools} view -uh --no-PG {outd_rawalign_qFN} | '
+        # f'{samtools} view -uh --no-PG {outd_rawalign_qFN} | '     # Why did we have the view before Fixmate?
         if sort_cpus == 0:      # Not enough memory for sort; report error again as alignment puts out lots of messages
             fs_str = str(round(fastq_size / 10 ** 9, 0))
             wgse_message("error", "errNoMemMacOSTitle", True, wgse.lang.i18n["errNoMemMacOS"].replace("SIZE", fs_str))
-            mainwindow_resume() if not inRealign else ""
-            return False
+            return _align_exit()
+
         commands = (
           f'{samtools} fixmate -m -O bam -@ {cpus} {outd_rawalign_qFN} - |'
           f'  {samtools} sort -T {tempdir_qFN} -m {sort_mem} -@ {sort_cpus} -o {outd_sorted_qFN} - \n'
@@ -1350,12 +1947,12 @@ def button_align_BAM(inRealign=False):
         # Note that a coordinate sorted BAM can be smaller than a name or unsorted BAM. Maybe
         #  compression is more effective when the similar sequences are brought closer to each other?
 
-    # ------------------------------------------------------------------------------------------
-    # (c2) Cleanup2 (markdup and Index new BAM)
+    # --- (c2) Cleanup2 (markdup and index new BAM) --------------------------------------------
     if os.path.isfile(trueBAM_oFN) and os.path.isfile(outd_sorted_oFN) and \
        os.path.getmtime(trueBAM_oFN) > os.path.getmtime(outd_sorted_oFN) and \
        0.5 < (os.path.getsize(trueBAM_oFN) / os.path.getsize(outd_sorted_oFN)) < 1.2:
         DEBUG(f'Found previous sorted, final BAM to reuse: {trueBAM_FN}')
+
     elif aligner == "bwa":        # Cleanup built into Long Read FASTQ files turned into BAMs
         # Check if samtools has read-coord option and sequencer has names that can be parsed for optical duplicates
         valid_markdup = any(elem in sequencer for elem in wgse.valid_markdup)
@@ -1365,10 +1962,12 @@ def button_align_BAM(inRealign=False):
                 read = wgse.sequencers[sequencer][1]
                 order = wgse.sequencers[sequencer][2]
                 coord_opts = f'--read-coords \"{read}\" --coords-order {order}'
+
             else:   # Old versions of samtools processed Illumina names with Row/Col specs embedded
                 coord_opts = ""
                 if "MGI" in sequencer:  # MGI files hang if try optical duplicate before version 15; simply turn off
                     length = 0
+
             markdup_opts = f'-d {length} {coord_opts}'
             # Todo set -l 400 (default is 300bp) to handle ySeq WG400?  What about nanopore? PacBio HiFi   ?
 
@@ -1377,16 +1976,16 @@ def button_align_BAM(inRealign=False):
                 f'  -@ {cpus} -T {tempdir_qFN} {outd_sorted_qFN} {trueBAM_qFN} \n'
                 f'{samtools} index {trueBAM_qFN} \n'
             )
+
         else:
             os.rename(outd_sorted_oFN, trueBAM_oFN)
             commands = f'{samtools} index {trueBAM_qFN} \n'
-        
-        run_bash_script("AlignCleanup2", commands)
-        # Note that a coordinate sorted BAM is smaller than a name or unsorted BAM. Maybe
-        #  compression is more effective when the similar sequences are brought closer to each other?
 
-    # ------------------------------------------------------------------------------------------
-    # (d) Convert to CRAM and remove BAM (if CRAM is actually being requested)
+        run_bash_script("AlignCleanup2", commands)
+        # Note that a coordinate sorted BAM is smaller than a name or unsorted BAM. Compression is more
+        # effective when the similar sequences and quality strings are brought closer to each other
+
+    # --- (d) Convert to CRAM and remove BAM (if a CRAM is requested) -------------------------
     if newBAM_FS == ".cram":
         # Note: would not find existing CRAM that is newer as we remove old BAM when converted
         # todo modify CRAM_to_BAM() to accept parameters and simply call that here
@@ -1396,45 +1995,50 @@ def button_align_BAM(inRealign=False):
         )
         run_bash_script("BAMtoCRAM", commands)
 
-        wgse.tempf.list.append(nativeOS(trueBAM_FN))           # Remove previous final BAM ...
-        wgse.tempf.list.append(nativeOS(trueBAM_FN + ".bai"))  #  and its index
-    # No need to rename file as newBAM_FN and trueBAM_FN are identical names when final is a BAM
+        wgse.tempf.list.append(nativeOS(trueBAM_FN))            # Remove previous final BAM ...
+        wgse.tempf.list.append(nativeOS(trueBAM_FN + ".bai"))   # and its index
 
-    # Todo check if Y-only BAM (effectively no reads on other primary sequences). If so, subset BAM to just Y now
-    #  as other sequences have miss-aligned / unimportant reads.
+    # else: No need to rename file as newBAM_FN and trueBAM_FN are identical names when final is a BAM
 
-    # Replace selected BAM/CRAM and garbage collect old one wgse.BAM; return success of change
-    if set_BAM_file(newBAM_FN):     # Will set wgse.BAM to newBAM and load
-        # If finished successfully, then delete RAW and sorted bam file in output directory
-        wgse.tempf.list.append(outd_rawalign_oFN)
-        wgse.tempf.list.append(outd_sorted_oFN)
-        wgse.BAM.R1fastq_FN = f1_FN     # Note: if in realign, and delete FASTQs, need to clear these
-        wgse.BAM.R2fastq_FN = f2_FN
-    else:                           # Restore old saved BAM as have not loaded a new one
-        wgse.BAM = saveBAM
-    mainwindow_resume() if not inRealign else ""
-    return True
+    # Replace selected BAM/CRAM and garbage collect old one; return success of change
+    if not set_BAM_file(newBAM_FN):         # Will set wgse.BAM to newBAM and load; return sucess
+        # Todo ? Delete raw and sorted BAMs if not in DEBUG?
+        return _align_exit()
+
+    # If finished successfully, then delete RAW and sorted bam file in output directory
+    wgse.tempf.list.append(outd_rawalign_oFN)
+    wgse.tempf.list.append(outd_sorted_oFN)
+    wgse.BAM.R1fastq_FN = f1_FN     # Note: if in realign, and delete FASTQs, need to clear these
+    wgse.BAM.R2fastq_FN = f2_FN
+
+    # Todo check if Y-only BAM (effectively no / few reads on other primary sequences). If so, subset the BAM
+    #  to just Y as reads may have aligned off the Y. Needed if started with Y only FASTQs or BAM
+
+    return _align_exit(True)
 
 
 def _name_from_FASTQ(fastq_file):
     """
     Try to be smart about naming reports on FASTQs.  Remove more than just the file extension if matching templates
-    for common name extensions from delivered BAM files. Otherwise, simply strip common extension. Using split as
-    last resort.
+    for common name extensions from delivered BAM files. Otherwise, simply strip common extension.
     """
+    # Todo have similar code in the BAMFile class (also checks for existence); merge somehow?
     templates = ("_SA_L001_R1_001.fastq.gz", "_SA_L001_R2_001.fastq.gz",    # Dante Labs
                  "_1.fq.gz", "_2.fq.gz",                                    # Nebula Genomics
                  ".1.fq.gz", ".2.fq.gz",                                    # Sequencing
                  "_R1.fastq.gz", "_R2.fastq.gz",                            # WGSE unmap
-                 ".fq.gz", ".fastq.gz")                 # Simply remove the extension; maybe single-end?
+                 ".fq.gz", ".fastq.gz")          # Simply remove the known extension, if any; maybe single-end?
     # (note: ySeq does not supply FASTQs)
 
-    for template in templates:
-        if template in fastq_file:
-            return fastq_file.replace(template, "")    # Remove extension; leaving a BAM base name only
+    # matches = [x for x in templates if fastq_file.endswith(x)]        # list comprehension clearer?
+    # return fastq_file if len(matches) == 0 else fastq_file[: -len(matches[0])]
 
-    # Error if get here; cannot simplify FASTQ file name by simply removing known extension
-    return os.path.splitext(fastq_file)[0]
+    for template in templates:
+        if fastq_file.endswith(template):
+            return fastq_file[:-len(template)]      # Remove extension; leaving a BAM base name only
+
+    # If get here; do not recognize FASTQ so simply return the original
+    return fastq_file
 
 
 def button_fastp_FASTQ():
@@ -1443,25 +2047,23 @@ def button_fastp_FASTQ():
     """
 
     # If BAM set and we can simply try and find it's matching FASTQs
-    found = wgse.BAM and wgse.BAM.find_FASTQs()
-    if found:       # Use found BAM FASTQ file(s)
+    found = wgse.BAM and wgse.BAM.find_and_set_FASTQs()
+    if found:     # Use found BAM FASTQ file(s)
         f1_FN = wgse.BAM.R1fastq_FN
         f2_FN = wgse.BAM.R2fastq_FN
         paired = wgse.BAM.ReadType == "Paired"
-    else:           # Else, ask user for FASTQ(s) to use
+    else:                                       # or ask user for FASTQ(s) to use
         fastqs = ask_fastq_to_align()
-        f1_FN = fastqs[0] if len(fastqs) >= 1 else None
-        f2_FN = fastqs[1] if len(fastqs) == 2 else None
+        f1_FN = fastqs[0] if len(fastqs) >= 1 else ""
+        f2_FN = fastqs[1] if len(fastqs) == 2 else ""
         paired = True if f2_FN else False
 
     f1_oFN = nativeOS(f1_FN)
     f2_oFN = nativeOS(f2_FN)
 
     if not (f1_FN and os.path.isfile(f1_oFN) and (not paired or f2_FN and os.path.isfile(f2_oFN))):
-        f1 = "" if not f1_FN else f1_FN
-        f2 = "" if not f2_FN else f1_FN
         wgse_message("error", 'errFASTQMissingTitle', True,
-                     f'{wgse.lang.i18n["errFASTQMissing"]}'.replace("{{f1}}", f1).replace("{{f2}}", f2))
+                     f'{wgse.lang.i18n["errFASTQMissing"]}'.replace("{{f1}}", f1_FN).replace("{{f2}}", f2_FN))
         mainwindow_resume()
         return
 
@@ -1500,32 +2102,29 @@ def button_fastqc_FASTQ():
     """
 
     # If BAM set and we can find it's matching FASTQs, lets assume those are what they want.  Otherwise, ask which ones.
-    found = wgse.BAM and wgse.BAM.find_FASTQs()
+    found = wgse.BAM and wgse.BAM.find_and_set_FASTQs()
     if found:       # Use found BAM FASTQ file(s)
         f1_FN = wgse.BAM.R1fastq_FN
         f2_FN = wgse.BAM.R2fastq_FN
         paired = wgse.BAM.ReadType == "Paired"
     else:           # Else, ask user for FASTQ(s) to use
         fastqs = ask_fastq_to_align()
-        f1_FN = fastqs[0] if len(fastqs) >= 1 else None
-        f2_FN = fastqs[1] if len(fastqs) == 2 else None
+        f1_FN = fastqs[0] if len(fastqs) >= 1 else ""
+        f2_FN = fastqs[1] if len(fastqs) == 2 else ""
         paired = True if f2_FN else False
 
     f1_oFN = nativeOS(f1_FN)
     f2_oFN = nativeOS(f2_FN)
     if not (f1_FN and os.path.isfile(f1_oFN) and (not paired or os.path.isfile(f2_oFN))):
-        f1_FN = f1_FN if f1_FN else ""
-        f2_FN = f2_FN if f2_FN else ""
         wgse_message("error", 'errFASTQMissingTitle', True,
                      f'{wgse.lang.i18n["errFASTQMissing"]}'.replace("{{f1}}", f1_FN).replace("{{f2}}", f2_FN))
         mainwindow_resume()
         return
 
     # Unlike fastp, paired files are processed independently. So no BAM naming of a single output file to start.
-    # Cannot get -D options in FastQC to work; so have to move files from FASTQ files location to Output Directory
     ohtml1 = ohtml2 = None
     f1_FP, f1_FBS = os.path.split(f1_FN)
-    f1_FB = os.path.splitext(f1_FBS.replace(".fastq.gz", "").replace(".fq.gz", ""))[0]
+    f1_FB = fastq_base(f1_FBS)   # os.path.splitext(f1_FBS.replace(".fastq.gz", "").replace(".fq.gz", ""))[0]
     phtml1 = f'"{f1_FP}/{f1_FB}_fastqc.html"'
     pzip1  = f'"{f1_FP}/{f1_FB}_fastqc.zip"'
     fhtml1 = f'"{wgse.outdir.FP}{f1_FB}_fastqc.html"'
@@ -1533,7 +2132,7 @@ def button_fastqc_FASTQ():
     ohtml1 = nativeOS(unquote(fhtml1))
     if paired:
         f2_FP, f2_FBS = os.path.split(f2_FN)
-        f2_FB = os.path.splitext(f2_FBS.replace(".fastq.gz", "").replace(".fq.gz", ""))[0]
+        f2_FB = fastq_base(f2_FBS)   # os.path.splitext(f2_FBS.replace(".fastq.gz", "").replace(".fq.gz", ""))[0]
         phtml2 = f'"{f2_FP}/{f2_FB}_fastqc.html"'
         pzip2  = f'"{f2_FP}/{f2_FB}_fastqc.zip"'
         fhtml2 = f'"{wgse.outdir.FP}{f2_FB}_fastqc.html"'
@@ -1544,22 +2143,24 @@ def button_fastqc_FASTQ():
     if not(os.path.isfile(ohtml1) and (not paired or os.path.isfile(ohtml2))):
         fastqc = wgse.fastqcx_qFN
         fastq_FN = f'"{f1_FN}"' + (f' "{f2_FN}"' if paired else "")
-        # fastopt = f'-Dfastqc.output_dir={wgse.outdir.oFP} -Djava.io.tmpdir={wgse.tempf.oFP} -Dfastqc.threads=2'
 
         if wgse.java17x_FN is None:  # Really still needed? Is not checked in Settings at startup?
             wgse_message("error", 'MissingJavaTitle', False, 'MissingJava')
             mainwindow_resume()
             return
 
+        # Cannot get -D option in FastQC to work ...
+        # fastopt = f'-Dfastqc.output_dir={wgse.outdir.oFP} -Djava.io.tmpdir={wgse.tempf.oFP} -Dfastqc.threads=2'
         commands = f'{wgse.java17x_FNp} {fastqc} {fastq_FN}\n'
 
+        #  so have to move created files from FASTQ files location to Output Directory
         if f1_FP != wgse.outdir.FP:
-            commands += f'mv {phtml1} {fhtml1} ; mv {pzip1} {fzip1}\n'
+            commands += f'{wgse.mvx_qFN} {phtml1} {fhtml1} ; {wgse.mvx_qFN} {pzip1} {fzip1}\n'
 
         # noinspection PyUnboundLocalVariable
         if paired and f2_FP != wgse.outdir.FP:
             # noinspection PyUnboundLocalVariable
-            commands += f'{wgse.mv_qFN} {phtml2} {fhtml2} ; {wgse.mv_qFN} {pzip2} {fzip2}\n'
+            commands += f'{wgse.mvx_qFN} {phtml2} {fhtml2} ; {wgse.mvx_qFN} {pzip2} {fzip2}\n'
 
         run_bash_script('ButtonFastqc', commands)
 
@@ -1591,33 +2192,39 @@ def button_fastqc_FASTQ():
 def button_varqc_VCF():
     """
     Run the VariantQC java command (from DISCVRSeq) on the available FASTQ file(s).
-    Note that DISCVRSeq requires jre8 (as does Picard and GATK3;which are embedded in it)
+    Note that DISCVRSeq requires jre8 (as does Picard and GATK3; which are embedded in it). Haplogrep and GATK4
+    require jre11 or later.
     """
 
     # If BAM set and we can find it's matching VCFs, lets assume those are what they want.  Otherwise, ask which ones.
     found = wgse.BAM and wgse.BAM.find_VCFs()
     vcfs = wgse.BAM.VCFs if found else ask_vcfs_to_process()
 
-    wgse_message("info", 'ComingSoonTitle', False, 'ComingSoonBody')
+    wgse_message("info", 'ComingSoonTitle', True, wgse.lang.i18n['ComingSoonBody'].replace("{{FEATURE}}", "VarQC"))
 
     command = f'{wgse.java8x_FNp} "{wgse.jartools_FP}DISCVRSeq.jar" VariantQC '
     # Need the refgenome for (all) VCFs; if wgse.BAM, verify it is the same?
     # Need to create command line entry for each file; creating unique(?) "V" label
     # Need to create output file name; easy if wgse.BAM, ask user if not?
 
+    # Needs oFP for all files passed to Java (C:\\... for Windows)
+    # Needs .tbi index for any VCF: bcftools index -t *vcf.gz
     ''' Dante VCFs analysis:
-    {wgse.java8x_FNp} "{wgse.jartools_FP}DISCVRSeq.jar" VariantQC -R hs37d5*gz \
+    {wgse.java8x_FNp} "{wgse.jartools_oFP}DISCVRSeq.jar" VariantQC -R hs37d5*gz \
       -V:snp bamname.snp.vcf.gz -V:indel bamname.indel.vcf.gz -V:cnv bamname.cnv.vcf.gz \
       -V:sv bamname.sv.vcf.gz -O bamname_VarQC.html
+    /mnt/c/wgse/dev/jre8/bin/java.exe -jar "C:\wgse\dev\jartools\DISCVRSeq.jar" VariantQC \
+    -R "C:\wgse\dev\reference\genomes\hs37d5.fa.gz" \
+    -V:snp1 608*Avanti.vcf.gz -V:snp2 608*snp.vcf.gz -O 60820188479441_VarQC.html
     '''
     ''' Nebula VCFs analysis:
-    {wgse.java8x_FNp} "{wgse.jartools_FP}DISCVRSeq.jar" VariantQC -R hs38*gz \
+    {wgse.java8x_FNp} "{wgse.jartools_oFP}DISCVRSeq.jar" VariantQC -R hs38*gz \
       -V:snp bamname.vcf.gz -O bamname_VarQC.html
     '''
 
 
 def button_igv_BAM():
-    wgse_message("info", 'ComingSoonTitle', False, 'ComingSoonBody')
+    wgse_message("info", 'ComingSoonTitle', True, wgse.lang.i18n['ComingSoonBody'].replace("{{FEATURE}}", "IGV"))
     # {javaw} --module-path={igv}/lib -Xmx8g -@{igv}/igv.args -Dproduction=true \
     #   -Djava.net.preferIPv4Stack=true -Dsun.java2d.noddraw=true - \
     #   -module=org.igv/org.broad.igv.ui.Main --batch=batch.xml
@@ -1638,15 +2245,15 @@ def button_unalign_BAM(inRealign=False):
     """
 
     # Let's check if FASTQ's already exist; BAMfile class can do it and store locally if found
-    missing_FASTQs = not wgse.BAM.find_FASTQs()
-    if missing_FASTQs:         # Could not find FASTQs, so need to make them
+    missing_FASTQs = not wgse.BAM.find_and_set_FASTQs(inRealign)
+    if missing_FASTQs:         # Could not find FASTQs (note: find_and_set leaves names in BAM class instance)
+
+        r1fastq = r2fastq = sefastq = "/dev/null"
         if wgse.BAM.ReadType == "Paired":
-            r1fastq = f'"{wgse.outdir.FPB}_R1.fastq.gz"'    # File names to create here
-            r2fastq = f'"{wgse.outdir.FPB}_R2.fastq.gz"'
-            sefastq = "/dev/null"
+            r1fastq = wgse.BAM.R1fastq_FN    # File names to create here
+            r2fastq = wgse.BAM.R2fastq_FN
         else:
-            r1fastq = r2fastq = "/dev/null"
-            sefastq = f'"{wgse.outdir.FPB}.fastq.gz"'       # For single-end BAMs
+            sefastq = wgse.BAM.R1fastq_FN    # For single-end BAMs
 
         # CRAM file requires reference genome be specified with VIEW command
         cram_opt = f'-T {wgse.BAM.Refgenome_qFN}' if wgse.BAM.file_type == "CRAM" else ""
@@ -1654,21 +2261,21 @@ def button_unalign_BAM(inRealign=False):
         bamfile  = wgse.BAM.file_qFN
         tempdir  = f'"{wgse.tempf.FP}"'
 
-        if wgse.BAM.file_type == "CRAM" and wgse.reflib.missing_refgenome(wgse.BAM.Refgenome_qFN):
+        if wgse.reflib.missing_refgenome(wgse.BAM.Refgenome_qFN, required=wgse.BAM.file_type == "CRAM"):
             mainwindow_resume() if not inRealign else ""
-            return False      # Check routine reports error if reference does not exist
+            return False, False      # Check routine reports error if reference does not exist
 
         sort_mem, sort_cpus = _adjust_mem_threads(wgse.BAM.file_stats.st_size, wgse.BAM.file_type, "Name")
         if sort_cpus == 0:  # Not enough memory to run samtools sort on MacOS; already reported the error
-            mainwindow_resume()
-            return False
+            mainwindow_resume() if not inRealign else ""
+            return False, False
 
         # Sort in name order, then call fastq command to split and write FastQ's
         # Samtools sort cannot take the reference genome specification so have to view a CRAM first
         commands = (
             f'{samtools} view -uh --no-PG {cram_opt} {bamfile} | '
             f'  {samtools} sort -n -T {tempdir} -m {sort_mem} -@ {sort_cpus} -O sam | '
-            f'  {samtools} fastq -1 {r1fastq} -2 {r2fastq} -0 {sefastq} -s /dev/null -n -@ {wgse.os_threads} \n'
+            f'  {samtools} fastq -1 "{r1fastq}" -2 "{r2fastq}" -0 "{sefastq}" -s /dev/null -n -@ {wgse.os_threads} \n'
         )
 
         run_bash_script('ButtonUnalignBAM', commands)
@@ -1682,11 +2289,14 @@ def button_unalign_BAM(inRealign=False):
             wgse.BAM.R1fastq_FN = unquote(sefastq)
             wgse.BAM.R2fastq_FN = ""
 
+        mainwindow_resume() if not inRealign else ""
+        return True, True       # FASTQs (now) available, FASTQs made as were missing
+
     mainwindow_resume() if not inRealign else ""
-    return True
+    return True, False          # FASTQs available, FASTQs reused as found
 
 
-def button_select_output_path():
+def button_select_outdir():
     """ Processing user button to specify Output Directory path """
 
     # Get directory to start in from the one containing the current set directory; if set. Otherwise, let OS decide
@@ -1694,33 +2304,51 @@ def button_select_output_path():
     new_FP = filedialog.askdirectory(parent=wgse.window, title=wgse.lang.i18n['SelectOutputDirectory'],
                                      initialdir=initialdir)      # Returns Unix/Universal, and no trailing slash
     if new_FP:      # Process user selection
-        set_output_path(new_FP)
+        set_outdir(new_FP, user_set=True)
     else:
         DEBUG(f"Output Path not set (cancelled)")
     mainwindow_resume()
 
 
-def set_output_path(new_FP):
+def button_unselect_outdir():
+    if wgse.outdir:
+        wgse.outdir.clear()                 # Just clear values; do not delete class
+        outdirButton.configure(text=wgse.lang.i18n['Default'])
+        outdirButton.configure(font=font['14'])
+        outdirButton.configure(bg=wgse.defbut_bg)
+        outdirUnselectButton.grid_remove()
+        if wgse.BAM:                        # Have to reload to set default output directory (or should we just clear?)
+            wgse_message("warning", "UnselectOutDirBAMTitle", False, "UnselectOutDirBAM")
+            save = wgse.BAM  ;  wgse.BAM = None
+            set_BAM_file(save.file_FN)      # If fails, just continue
+        set_BAM_window_settings()           # Sets window labels of BAM file settings
+        wgse.save_settings()                # Possibly changed BAM file and outdir; so save settings
+    mainwindow_resume()
+
+
+def set_outdir(new_FP, user_set=False):
     """"
         Set a new output directory (path) for all (permanent) output files.
-        Called here from button_select_output_path and from standalone microarray module
+        Called here from button_select_outdir, from standalone microarray module and the set_BAM_file
     """
-    if not wgse.outdir or not new_FP or len(new_FP) < 1:
-        # Todo Internal Error; output directory class not yet setup. Required during program init. Or no path specified.
+    if not wgse.outdir or not new_FP or len(new_FP) < 3:
+        DEBUG("*** Internal Error: Tried to set outdir before class setup, with an empty dir spec, or an invalid dir.")
         return
 
-    # Assure trailing os_slash; universalOS value so always single forward slash
-    new_FP += '/' if new_FP[-1] != '/' else ""
-
-    wgse.outdir.change(new_FP)      # Call class to actually change value
-
-    if wgse.outdir.FB:
-        outputDirectoryButton.configure(text=wgse.outdir.FB)    # Change text in Output Directory setting / button
+    if user_set:
+        wgse.outdir.change(new_FP, user_set)      # Call class to actually change value
     else:
-        wgse_message("error", 'InvalidPathWindowTitle', False, 'errOutputPathSpecialChars')
+        wgse.outdir.new_default(new_FP)
 
-    # Todo check if actually changed outdir and only call save  and maybe button configure if so?
-    wgse.save_settings()  # One of the saved settings; so go ahead and write out now
+    if wgse.outdir.FB and wgse.window and wgse.dnaImage:
+        outdirButton.configure(text=wgse.outdir.FB if user_set else wgse.lang.i18n['Default'])
+        outdirButton.configure(font=font['14b'] if user_set else font['14'])
+        outdirButton.configure(bg=cyan if user_set else wgse.defbut_bg)
+        outdirUnselectButton.grid()
+    #else:
+    #    wgse_message("error", 'InvalidPathWindowTitle', False, 'errOutputPathSpecialChars')
+
+    wgse.save_settings()  # One of the saved settings; so go ahead and write out now (even if default so it is cleared)
 
 
 def button_mtdna_BAM():
@@ -1733,7 +2361,7 @@ def button_mtdna_BAM():
 
     # CRAM file requires reference genome be specified with VIEW command
     cram_opt = f'-T {wgse.BAM.Refgenome_qFN}' if wgse.BAM.file_type == "CRAM" else  ""
-    if wgse.BAM.file_type == "CRAM" and wgse.reflib.missing_refgenome(wgse.BAM.Refgenome_qFN):
+    if wgse.reflib.missing_refgenome(wgse.BAM.Refgenome_qFN, required=wgse.BAM.file_type == "CRAM"):
         mainwindow_resume()
         return False     # Check routine reports error if reference does not exist
 
@@ -1880,7 +2508,7 @@ def button_yAndMt_BAM():
     """ Processing user button to generate Y and mtDNA only BAM (e.g. for yFull) """
     # CRAM file requires reference genome be specified with VIEW command
     cram_opt = f'-T {wgse.BAM.Refgenome_qFN}' if wgse.BAM.file_type == "CRAM" else ""
-    if wgse.BAM.file_type == "CRAM" and wgse.reflib.missing_refgenome(wgse.BAM.Refgenome_qFN):
+    if wgse.reflib.missing_refgenome(wgse.BAM.Refgenome_qFN, required=wgse.BAM.file_type == "CRAM"):
         mainwindow_resume()
         return     # Check routine reports error if reference does not exist
 
@@ -1907,11 +2535,11 @@ def button_yOnly_BAM(internal=False):
     Put in output directory; does not replace currently selected BAM (extract button; not BAM settings button)
     Can be called internally. If so, put in temp area.
     """
-    from shutil import copy2
+    import shutil
 
     # CRAM file requires reference genome be specified with VIEW command
     cram_opt = f'-T {wgse.BAM.Refgenome_qFN}' if wgse.BAM.file_type == "CRAM" else  ""
-    if wgse.BAM.file_type == "CRAM" and wgse.reflib.missing_refgenome(wgse.BAM.Refgenome_qFN):
+    if wgse.reflib.missing_refgenome(wgse.BAM.Refgenome_qFN, required=wgse.BAM.file_type == "CRAM"):
         mainwindow_resume()
         return False     # Check routine reports error if reference does not exist
 
@@ -1922,7 +2550,7 @@ def button_yOnly_BAM(internal=False):
     outybam_oFN = nativeOS(unquote(outybam_qFN))
     if wgse.BAM.Yonly and not wgse.BAM.Monly:
         # If already a true Yonly BAM, simply copy it.  Internal call requires new name.
-        copy2(wgse.BAM.file_oFB, outybam_oFN)
+        shutil.copy2(wgse.BAM.file_oFN, outybam_oFN)
         return True
 
     chromos = wgse.BAM.get_chr_name('Y')
@@ -1953,10 +2581,11 @@ def button_yOnly_VCF():
 
     # Get correct Reference VCF file based on build, chromosome names and type (All, Yonly)
     refVCFtab_qFN = wgse.reflib.get_reference_vcf_qFN(wgse.BAM.Build, wgse.BAM.SNTypeC, type="Yonly")
-    if "error" in refVCFtab_qFN:
+    if "error" in refVCFtab_qFN or not os.path.isfile(nativeOS(unquote(refVCFtab_qFN))):
         wgse_message("error", 'errYTitle', False, 'errYNoVCFRef')
         mainwindow_resume()
         return
+
     refgenome_qFN = wgse.BAM.Refgenome_qFN
     if wgse.reflib.missing_refgenome(refgenome_qFN):
         mainwindow_resume()
@@ -2007,18 +2636,18 @@ def button_yOnly_VCF():
     mainwindow_resume()
 
 
-def button_Annotate_BigYVCF():
+def button_annotate_BigYVCF():
     """
     Special for handling FTDNA BigY VCF which comes uncompressed and with incorrect format.
     Must filter first to correct format before using bcftools annotation.
     """
-    wgse_message("info", 'ComingSoonTitle', False, 'ComingSoonBody')
+    wgse_message("info", 'ComingSoonTitle', True, wgse.lang.i18n['ComingSoonBody'].replace("{{FEATURE}}", "Annotate BigY VCF"))
     '''
     # IN DEVELOPMENT; Pseudo-code so far
     if zip compressed:      # FTDNA delivers a .zip file with the source VCF, a readme.txt and regions.bed file
         f'{unzip} {source_VCF} variants.vcf'
         real_VCF = "variants.vcf"
-    elif bgzip'ed:                   
+    elif bgzip'ed:
         f'{bgzip} -d {source_VCF}'
         real_VCF = source_VCF.split('.gz')[0]       # Removed trailing .gz on source_VCF name
     else:
@@ -2043,18 +2672,17 @@ def button_ydna_haplogroup():
     outd_FP = f'{wgse.tempf.FP}tempYleaf/'
     outf = f'"{outd_FP}haplogroups.txt"'        # note: _qFN
     outd_oFP = nativeOS(outd_FP)
-    if os.path.isdir(outd_oFP):       # REH 10Mar2020 If previous run crashed ...
-        wgse.tempf.list.append(outd_oFP)    # Adding it to list assures deletion even if DEBUG_MODE is True
-        wgse.tempf.clean()
+    if os.path.isdir(outd_oFP):             # REH 10Mar2020 If previous run crashed ...
+        # wgse.tempf.list.append(outd_oFP)    # Calling clean assures deletion even if DEBUG_MODE is True
+        wgse.tempf.clean_item(outd_oFP, ignore_debug_mode=True)
 
     position_FBS = "WGS_hg38.txt" if "38" in wgse.BAM.Refgenome else "WGS_hg19.txt"
-    if wgse.BAM.file_type == "CRAM":
-        filespec = f"-f {wgse.BAM.Refgenome_qFN} -cram {wgse.BAM.file_qFN}"
-        if wgse.reflib.missing_refgenome(wgse.BAM.Refgenome_qFN):
-            mainwindow_resume()
-            return  # Check routine reports error if reference does not exist
-    else:  # Is BAM or SAM; the same for the tool
-        filespec = f"-bam {wgse.BAM.file_qFN}"
+    if wgse.reflib.missing_refgenome(wgse.BAM.Refgenome_qFN, required=wgse.BAM.file_type == "CRAM"):
+        mainwindow_resume()
+        return  # Check routine reports error if reference does not exist
+
+    filespec = f'-f {wgse.BAM.Refgenome_qFN} -cram {wgse.BAM.file_qFN}' if wgse.BAM.file_type == "CRAM" else \
+               f'-bam {wgse.BAM.file_qFN}'
 
     # Each file path needs to be surrounded by quotes       # REH 10Mar2020
     ylef = f'"{wgse.yleaf_FP}yleaf.py"'
@@ -2070,7 +2698,7 @@ def button_ydna_haplogroup():
 
     result_oFN = nativeOS(unquote(outf))
     if not os.path.exists(result_oFN):
-        print('--- FAILURE in yLeaf call (no result file)!')
+        print('--- FAILURE in yLeaf call (no result file)!')    # Todo convert to wgse_message
         mainwindow_resume()
         return
 
@@ -2078,61 +2706,73 @@ def button_ydna_haplogroup():
         fp.readline()               # REH 13Mar2020 This would work if file named correctly; skip header
         fpdata = fp.readline()      # REH 13Mar2020 Read only first result; only supplying one file
         columns_yleaf_result = fpdata.split("\t")
-        yhg = columns_yleaf_result[1]   # Second column is Y Haplogroup (in YCC Long form)
 
-    if yhg == 'NA':
-        print('--- FAILURE in yLeaf call (NA result)!')
+    if len(columns_yleaf_result) < 2 or columns_yleaf_result[1] == 'NA':
+        print('--- FAILURE in yLeaf call (NA result)!')    # Todo convert to wgse_message
         mainwindow_resume()
         return
+
+    yhg = columns_yleaf_result[1]   # Second column is Y Haplogroup (in YCC Long form)
+    yhgs = columns_yleaf_result[2]  # Third column is Y Haplogroup (in YCC Short form; could be a paragroup)
 
     out_FB  = wgse.BAM.file_FB
     grep    = wgse.grepx_qFN
     awk     = wgse.awkx_qFN
-    awkargs = "-F \"\\\"*\\t\\\"*\" '{print $3}'"   # Todo simplify with raw strong r""?
-    outsuf  = f'"{outd_oFP}{out_FB}{wgse.os_slash}{out_FB}.out"'
-    termsnp = f'"{outd_oFP}snps_terminal.txt"'
+    awkargs = "-F \"\\\"*\\t\\\"*\" '{print $3}'"   # Todo simplify with raw string r""?
+    outsuf  = f'{outd_oFP}{out_FB}{wgse.os_slash}{out_FB}.out'
+    termsnp = f'{outd_oFP}snps_terminal.txt'
     # Grep through output listing of 64,000+ SNPs and find all with same haplogroup as terminal
-    commands = f'{grep} "{yhg}" {outsuf} | {awk} {awkargs} > {termsnp}\n'
+    commands = f'{grep} "{yhg}" "{outsuf}" | {awk} {awkargs} > "{termsnp}"\n'
 
     run_bash_script('ButtonYHaplo2', commands)
 
-    termsnp_oFN = f'{outd_oFP}snps_terminal.txt'    # Previous one is quoted, not-native
-    if not os.path.exists(termsnp_oFN):
-        print('--- Failure in yLeaf post-processing (no terminal SNPs file)!')
+    if not os.path.exists(termsnp):
+        print('--- Failure in yLeaf post-processing (no terminal SNPs file)!')    # Todo convert to wgse_message
         mainwindow_resume()
         return
-    with open(termsnp_oFN) as f:
+
+    with open(termsnp) as f:
         terminal_snps = [line.rstrip('\n') for line in f]
 
-    result_window_yHaplo(yhg, terminal_snps)
+    result_window_yHaplo(yhg, yhgs, terminal_snps)
 
 
-def result_window_yHaplo(yhg, terminal_snps):
+def result_window_yHaplo(yhg, yhgs, terminal_snps):
     """ Y Chromosome Haplogroup call results window pop-up. """
-    global yHaploResWindow
+    global yHaploResWindow, font
 
     font = wgse.fonts.table
 
+    left = yhgs.find('-')
+    right = yhgs.find('*')
+
     total_snp_count = len(terminal_snps)
     if total_snp_count > 0:
-        full_snp_list = ", ".join(terminal_snps)
+        full_snp_list = ", ".join(terminal_snps)        # Full SNP list as comma separated string
         snps_textline = ", ".join(terminal_snps[0:total_snp_count if total_snp_count < 3 else 3])
         if total_snp_count > 3:
             snps_textline += " ..."
+        example_snp = terminal_snps[0]
+
+    # Must be a paragroup with no SNPs (or error in processing?)
     else:
-        snps_textline = ""  # 1 to 3 SNPs to report directly
-        full_snp_list = ""  # The full SNPs list (different than above if more than 3)
+        snps_textline = yhgs      # Must be a paragroup; so report its parent haplogroup as SNP list
+        full_snp_list = ""        # The full SNPs list (if greater than 3 only so empty here)
+        example_snp = yhgs[left+1:right] if -1 < left < right else yhgs # Try to extract haplogroup name (SNP) of parent
+
+    majhap = yhg[0]
+    yhg += "*" if right > -1 else ""    # Add paragroup designation to long form
 
     snps_label  = wgse.lang.i18n['SNPsForThisHG'].replace('{{yhg}}', yhg).replace('{{snps}}', snps_textline)
-    yFull_label = wgse.lang.i18n['findHgYFullDescription'].replace('{{BspSNP}}', terminal_snps[0])
-    ftdna_label = wgse.lang.i18n['findOnFTDNADescLabel'].replace('{{BspSNP}}', terminal_snps[0]).\
-        replace('{{url}}', f'{wgse.ftdna_pubytree_url}{yhg[0]}')
+    yFull_label = wgse.lang.i18n['findHgYFullDescription'].replace('{{BspSNP}}', example_snp)
+    ftdna_label = wgse.lang.i18n['findOnFTDNADescLabel'].replace('{{BspSNP}}', example_snp).\
+        replace('{{url}}', f'{wgse.ftdna_pubytree_url}{majhap}')
 
     # wgse.window.withdraw()        # Maybe hide main window while displaying stats? Turned off for now
     yHaploResWindow = Toplevel(wgse.window)
     yHaploResWindow.transient()
     yHaploResWindow.title(wgse.lang.i18n['YChromHaplogroup'])
-    yHaploResWindow.geometry(wgse.yHgResult_winsize)
+    yHaploResWindow.geometry(wgse.yHgResult_winsize + offset(wgse.window.geometry(), 50))
     yHaploResWindow.maxsize(width=wgse.yHgResult_maxw, height=wgse.yHgResult_maxh)
     yHaploResWindow.protocol("WM_DELETE_WINDOW", lambda win=yHaploResWindow: button_close(win))
     yHaploResWindow.iconbitmap(wgse.icon_oFP) if wgse.os_plat == "Windows" else ''
@@ -2146,20 +2786,20 @@ def result_window_yHaplo(yhg, terminal_snps):
 
     # Upper left Haplogroup box
     yhgresFrame = LabelFrame(yHaploResWindow, text=wgse.lang.i18n['FrameHgISOGG'], font=font['16b'])
-    yhgresFrame.grid(row=0, column=0, padx=10, pady=5, sticky=(N, S, E, W))
+    yhgresFrame.grid(row=0, column=0, padx=10, pady=5, sticky=NSEW)
 
     Label(yhgresFrame, text=f"File: {wgse.BAM.disp_FBS}", justify=LEFT,
           font=font['14']).grid(row=0, column=0, padx=5, pady=2)
     Label(yhgresFrame, text=wgse.lang.i18n['YDNAHaploReport'], justify=CENTER, wraplength=wraplength2,
           font=font['14']).grid(row=1, column=0, padx=5, pady=2)
-    Label(yhgresFrame, text=f"{yhg}", justify=CENTER,
+    Label(yhgresFrame, text=f"{yhg}, {yhgs}", justify=CENTER,
           font=font['14b']).grid(row=2, column=0, padx=5, pady=2)
     Label(yhgresFrame, text=f'{time.ctime()};  WGSE {wgse.__version__}', justify=CENTER,
           font=font['12']).grid(row=3, column=0, columnspan=4, padx=0, pady=0)
 
     # Upper right SNPs box
     snpsForHgFrame = LabelFrame(yHaploResWindow, text=wgse.lang.i18n['FrameHgSNPs'], font=font['16b'])
-    snpsForHgFrame.grid(row=0, column=1, padx=10, pady=5, sticky=(N, S, E, W))
+    snpsForHgFrame.grid(row=0, column=1, padx=10, pady=5, sticky=NSEW)
 
     Label(snpsForHgFrame, text=snps_label, justify=LEFT, wraplength=snpsForHgFrame.winfo_width()-10,
           font=font['14']).grid(row=0, column=0, padx=5, pady=2)
@@ -2172,7 +2812,7 @@ def result_window_yHaplo(yhg, terminal_snps):
 
     # Lower, spanning-columns Trees box
     findHgOtherTreesFrame = LabelFrame(yHaploResWindow, text=wgse.lang.i18n['FrameHgOtherTrees'], font=font['16b'])
-    findHgOtherTreesFrame.grid(row=1, column=0, columnspan=2, padx=10, pady=5, sticky=(N, S, E, W))
+    findHgOtherTreesFrame.grid(row=1, column=0, columnspan=2, padx=10, pady=5, sticky=NSEW)
 
     DEBUG(f"Wraplengths: window:{wraplength1}, 2/3 frame:{wraplength2}")
     crow = 0
@@ -2210,13 +2850,15 @@ def result_window_simple(title, simple_text, file_ext, pts, top=False, wwrap="wo
     """
     Generic simple result window handler.  Provides results given in simple_text and a save and exit button.
     """
+    global font
+
     font = wgse.fonts.table
 
     # wgse.window.withdraw()        # Maybe hide main window while displaying stats? Turned off for now
     simResWindow = Toplevel(wgse.window)
     simResWindow.transient()
     simResWindow.title(title)
-    simResWindow.geometry(wgse.simResult_winsize)
+    simResWindow.geometry(wgse.simResult_winsize + offset(wgse.window.geometry(), 50))
     simResWindow.protocol("WM_DELETE_WINDOW", lambda win=simResWindow: button_close(win))
     simResWindow.iconbitmap(wgse.icon_oFP) if wgse.os_plat == "Windows" else ''
     simResWindow.maxsize(width=wgse.simResult_maxw, height=wgse.simResult_maxh)
@@ -2238,15 +2880,15 @@ def result_window_simple(title, simple_text, file_ext, pts, top=False, wwrap="wo
 
     bodyText = Text(bodyFrame, width=wgse.simResult_maxw, height=wgse.simResult_maxh, wrap=wwrap, font=font[pts])
     bodyText.insert('end', simple_text) # justify=LEFT, wraplength=wraplength1,
-    bodyText.grid(row=0, column=0, padx=5, pady=2, sticky=(N, S, E, W))
+    bodyText.grid(row=0, column=0, padx=5, pady=2, sticky=NSEW)
 
     bodyScrolly = Scrollbar(bodyFrame, orient=VERTICAL, command=bodyText.yview)
-    bodyScrolly.grid(row=0, column=1, padx=2, pady=2, sticky=(N, S))
+    bodyScrolly.grid(row=0, column=1, padx=2, pady=2, sticky=NS)
     bodyText.config(yscrollcommand=bodyScrolly.set)
 
     if wwrap == "none":      # Need X scrollable also
         bodyScrollx = Scrollbar(bodyFrame, orient=HORIZONTAL, command=bodyText.xview)
-        bodyScrollx.grid(row=1, column=0, padx=2, pady=2, sticky=(E, W))
+        bodyScrollx.grid(row=1, column=0, padx=2, pady=2, sticky=EW)
         bodyText.config(xscrollcommand=bodyScrollx.set)
 
     # Bottom row information and buttons
@@ -2272,7 +2914,7 @@ def button_export_unmapped_reads(internal=False):
 
     # CRAM file requires reference genome be specified with VIEW command
     cram_opt = f'-T {wgse.BAM.Refgenome_qFN}' if wgse.BAM.file_type == "CRAM" else ""
-    if wgse.BAM.file_type == "CRAM" and wgse.reflib.missing_refgenome(wgse.BAM.Refgenome_qFN):
+    if wgse.reflib.missing_refgenome(wgse.BAM.Refgenome_qFN, required=wgse.BAM.file_type == "CRAM"):
         mainwindow_resume()
         return      # Check routine reports error if reference does not exist
 
@@ -2369,7 +3011,7 @@ def button_extract_WES():
     cramopts = f'-C --reference {wgse.BAM.Refgenome_qFN}' if wgse.BAM.file_type == "CRAM" else "-b"
 
     if (bedfile and not check_exists(nativeOS(unquote(bedfile)), 'errNoBEDFile')) or \
-            (cramopts and wgse.reflib.missing_refgenome(wgse.BAM.Refgenome_qFN)):
+       wgse.reflib.missing_refgenome(wgse.BAM.Refgenome_qFN, required=wgse.BAM.file_type == "CRAM"):
         mainwindow_resume()
         return
 
@@ -2393,76 +3035,63 @@ def button_extract_WES():
 minVCFSize = 50000
 
 
-def button_SNP_VCF():
+def button_SNP_VCF(gVCF=False):
+    _button_VCF(vtype="SNP", gVCF=gVCF)
+
+
+def button_InDel_VCF(gVCF=False):
+    _button_VCF(vtype="InDel", gVCF=gVCF)
+
+
+def _button_VCF(vtype="SNP", gVCF=False):
 
     bcftools = wgse.bcftoolsx_qFN
     tabix = wgse.tabixx_qFN
     cpus = wgse.os_threads
     ploidy_qFN = f'"{wgse.reflib.cma_FP}ploidy.txt"'
 
-    final_vcf_FN  = f'{wgse.outdir.FPB}.snp.vcf.gz'
+    gvcf_opt = f"-g 1" if gVCF else "-v"  #  add -M to keep masked N sites? add -i N to put reference value if pileup less than N?
+    vtype = vtype.lower()
+    notv = "-V indels" if vtype == "snp" else \
+           "-V snps" if vtype == "indel" else \
+           "" if vtype == "both" else ""
+
+    final_vcf_FN  = f'{wgse.outdir.FPB}.{vtype}.vcf.gz'
     final_vcf_oFN = nativeOS(final_vcf_FN)
     final_vcf_qFN = f'"{final_vcf_FN}"'
     bamfile = f'"{wgse.BAM.file_FN}"'
+
     refgen_qFN = wgse.BAM.Refgenome_qFN
     if wgse.reflib.missing_refgenome(refgen_qFN):
-        return False  # check() reports error if reference genome does not exist
+        return  # check() reports error if reference genome does not exist
 
     if not (os.path.exists(final_vcf_oFN) and
             os.path.getmtime(final_vcf_oFN) > os.path.getmtime(wgse.BAM.file_oFN) and
             os.path.getsize(final_vcf_oFN) > minVCFSize):
 
         commands = (
-            f'{bcftools} mpileup -B -I -C 50 -f {refgen_qFN} -Ou {bamfile} | '
-            f'  {bcftools} call --ploidy-file {ploidy_qFN} -V indels -v -m -P 0 --threads {cpus} -Oz -o {final_vcf_qFN}\n'
+            f'{bcftools} mpileup {gvcf_opt} -B -I -C 50 -f {refgen_qFN} -Ou {bamfile} | '
+            f'  {bcftools} call --ploidy-file {ploidy_qFN} {notv} {gvcf_opt} -m -P 0 --threads {cpus} -Oz -o {final_vcf_qFN}\n'
             f'{tabix} -p vcf {final_vcf_qFN}\n'
         )
 
-        run_bash_script("ButtonSNPVCF", commands, parent=wgse.window)
-
-
-def button_InDel_VCF():
-
-    bcftools = wgse.bcftoolsx_qFN
-    tabix = wgse.tabixx_qFN
-    cpus = wgse.os_threads
-    ploidy_qFN = f'"{wgse.reflib.cma_FP}ploidy.txt"'
-
-    final_vcf_FN = f'{wgse.outdir.FPB}.indel.vcf.gz'
-    final_vcf_oFN = nativeOS(final_vcf_FN)
-    final_vcf_qFN = f'"{final_vcf_FN}"'
-    bamfile = f'"{wgse.BAM.file_FN}"'
-    refgen_qFN = wgse.BAM.Refgenome_qFN
-    if wgse.reflib.missing_refgenome(refgen_qFN):
-        return False  # check() reports error if reference genome does not exist
-
-    if not (os.path.exists(final_vcf_oFN) and
-            os.path.getmtime(final_vcf_oFN) > os.path.getmtime(wgse.BAM.file_oFN) and
-            os.path.getsize(final_vcf_oFN) > minVCFSize):
-        commands = (
-            f'{bcftools} mpileup -B -I -C 50 -f {refgen_qFN} -Ou {bamfile} | '
-            f'  {bcftools} call --ploidy-file {ploidy_qFN} -V snps -v -m -P 0 --threads {cpus} -Ou | '
-            f'  {bcftools} norm -f {refgen_qFN} --threads {cpus} -Oz -o {final_vcf_qFN}\n'
-            f'{tabix} -p vcf {final_vcf_qFN}\n'
-        )
-
-        run_bash_script("ButtonInDelVCF", commands, parent=wgse.window)
+        run_bash_script("ButtonVCF", commands, parent=wgse.window)
 
 
 def button_CNV_VCF():
-    wgse_message("info", 'ComingSoonTitle', False, 'ComingSoonBody')
+    wgse_message("info", 'ComingSoonTitle', True, wgse.lang.i18n['ComingSoonBody'].replace("{{FEATURE}}", "CNV VCF"))
 
 
 def button_SV_VCF():
-    wgse_message("info", 'ComingSoonTitle', False, 'ComingSoonBody')
+    wgse_message("info", 'ComingSoonTitle', True, wgse.lang.i18n['ComingSoonBody'].replace("{{FEATURE}}", "SV VCF"))
 
 
 def button_annotate_VCF():
-    wgse_message("info", 'ComingSoonTitle', False, 'ComingSoonBody')
+    wgse_message("info", 'ComingSoonTitle', True, wgse.lang.i18n['ComingSoonBody'].replace("{{FEATURE}}", "Annotated VCF"))
 
 
 def button_filter_VCF():
-    wgse_message("info", 'ComingSoonTitle', False, 'ComingSoonBody')
+    wgse_message("info", 'ComingSoonTitle', True, wgse.lang.i18n['ComingSoonBody'].replace("{{FEATURE}}", "Filtered VCF"))
 
 
 def _button_unindex_BAM():
@@ -2489,7 +3118,7 @@ def _button_unsort_BAM():
 
         # CRAM decode requires reference genome be specified with VIEW command
         cram_opt = f'-T {wgse.BAM.Refgenome_qFN}' if wgse.BAM.file_type == "CRAM" else ""
-        if wgse.BAM.file_type == "CRAM" and wgse.reflib.missing_refgenome(wgse.BAM.Refgenome_qFN):
+        if wgse.reflib.missing_refgenome(wgse.BAM.Refgenome_qFN, required=wgse.BAM.file_type == "CRAM"):
             mainwindow_resume()
             return  # Check routine reports error if reference does not exist
 
@@ -2535,32 +3164,40 @@ def _button_fontsize():
     override = wgse.fonts.default_basept != wgse.fonts.basept
     curfont = (wgse.fonts.face, wgse.fonts.basept+2)        # Nominally use 14 (base 12 + 2)
     fontsizeButton.configure(                               # Update button value and color as necessary
-        text=str(wgse.fonts.basept)+' pt', bg='#ffb3fe' if override else wgse.defbut_bg, font=curfont)
+        text=str(wgse.fonts.basept)+' pt', bg=cyan if override else wgse.defbut_bg, font=curfont)
 
     fontsetLabel.configure(font=curfont)
     fontfaceButton.configure(font=curfont)
     wresetButton.configure(font=curfont)
 
 
+global _fontfaceWindow, _fontface
+
+
 def _button_fontface():
-    global fontsizeButton, fontfaceButton, fontsetLabel, wresetButton, _fontface, _fontfaceWindow
     from tkinter.font import families
+
+    global _fontfaceWindow, _fontface
 
     _fontfaceWindow = Toplevel(wgse.window)
     _fontfaceWindow.transient()
-    _fontfaceWindow.title(wgse.lang.i18n["FontFaceRequest"])
-    _fontfaceWindow.geometry("300x200")
+    _fontfaceWindow.title(wgse.lang.i18n["FontFaceRequestTitle"])
+    _fontfaceWindow.geometry("450x200" + offset(wgse.window.geometry(), 50))
     _fontfaceWindow.protocol("WM_DELETE_WINDOW", lambda win=_fontfaceWindow: button_close(win, False))
     _fontfaceWindow.iconbitmap(wgse.icon_oFP) if wgse.os_plat == "Windows" else ''
     _fontfaceWindow.columnconfigure(0, weight=1)
-    _fontfaceWindow.rowconfigure(0, weight=1)
+    _fontfaceWindow.rowconfigure(1, weight=1)
+
+    Label(_fontfaceWindow, text=wgse.lang.i18n["FontFaceRequest"], font=font['14'], justify="left"
+          ).grid(row=0, padx=5, pady=5, sticky=NW)
 
     _fontface = StringVar(_fontfaceWindow)
+
     _fontfaceCB = Combobox(_fontfaceWindow, textvariable=_fontface, values=families(), state='readonly',
-                           height=10, width=60, justify="left")
+                           height=10, width=60, justify="left", )
     _fontfaceCB.set(wgse.fonts.face)
     _fontfaceCB.bind('<<ComboboxSelected>>', _button_fontface_handler)
-    _fontfaceCB.grid(sticky=(N, W))
+    _fontfaceCB.grid(row=1, sticky=NW)
 
     _fontfaceWindow.update()
     _fontfaceWindow.grab_set()     # Toplevel equivalent of mainloop
@@ -2568,6 +3205,7 @@ def _button_fontface():
 
 
 def _button_fontface_handler(event):
+    global fontfaceButton, fontsetLabel, fontsizeButton, wresetButton
     global _fontfaceWindow, _fontface
 
     _fontfaceWindow.destroy()
@@ -2582,7 +3220,7 @@ def _button_fontface_handler(event):
         curfont = (wgse.fonts.face, wgse.fonts.basept+2)        # Nominally use 14 (base 12 + 2)
         flabel = wgse.fonts.face[:22]+'...' if len(wgse.fonts.face) > 25 else wgse.fonts.face
         fontfaceButton.configure(                               # Update button value and color as necessary
-            text=flabel, bg='#ffb3fe' if override else wgse.defbut_bg, font=curfont)
+            text=flabel, bg=cyan if override else wgse.defbut_bg, font=curfont)
 
         fontsetLabel.configure(font=curfont)
         fontsizeButton.configure(font=curfont)
@@ -2616,9 +3254,9 @@ def _button_maxmem_setting():
 
     # Depending on whether user override is active or not, calculate appropriate (new) values ...
     override = 2 <= maxmem < wgse.os_totmem_proc // 10**9                   # Is user override active or not
-    maxmemButton.configure(bg='#ffb3fe' if override else wgse.defbut_bg)    # Color button when override
+    maxmemButton.configure(bg=cyan if override else wgse.defbut_bg)         # Color button when override
     wgse.os_totmem = maxmem * 10**9 if override else wgse.os_totmem_proc    # Save new value
-    wgse.set_mem_per_thread_millions(wgse.os_totmem, wgse.os_threads)       # Sets wgse.os_mem to new value
+    wgse.os_mem = wgse.set_mem_per_thread_millions(wgse.os_totmem, wgse.os_threads)     # Note: a string
 
     DEBUG(f'Updated settings: total Mem: {wgse.os_totmem//10**9} GB, mem per thread: {wgse.os_mem}B')
 
@@ -2648,9 +3286,9 @@ def _button_maxthread_setting():
 
     # Depending on whether user override is active or not, calculate appropriate (new) values ...
     override = 1 <= maxthread < wgse.os_threads_proc                            # If user override active or not
-    maxthreadButton.configure(bg='#ffb3fe' if override else wgse.defbut_bg)     # Color button when active
+    maxthreadButton.configure(bg=cyan if override else wgse.defbut_bg)          # Color button when active
     wgse.os_threads = maxthread if override else wgse.os_threads_proc           # Save new value
-    wgse.set_mem_per_thread_millions(wgse.os_totmem, wgse.os_threads)           # sets wgse.os_mem to new value
+    wgse.os_mem = wgse.set_mem_per_thread_millions(wgse.os_totmem, wgse.os_threads)     # Note: a string
 
     DEBUG(f'Updated settings: Threads: {wgse.os_threads}, mem per thread: {wgse.os_mem}B')
 
@@ -2670,15 +3308,12 @@ def _button_SubsetBAM():
     samtools = wgse.samtoolsx_qFN
 
     # CRAM decode requires reference genome be specified with VIEW command
-    if wgse.BAM.file_type == "CRAM":
-        if wgse.reflib.missing_refgenome(wgse.BAM.Refgenome_qFN):
-            mainwindow_resume()
-            return      # Check routine reports error if reference does not exist
-        cram_opt = f'-C -T {wgse.BAM.Refgenome_qFN}'
-        ext = '.cram'
-    else:
-        cram_opt = "-b"
-        ext = '.bam'
+    if wgse.reflib.missing_refgenome(wgse.BAM.Refgenome_qFN, required=wgse.BAM.file_type == "CRAM"):
+        mainwindow_resume()
+        return      # Check routine reports error if reference does not exist
+    ext, cram_opt = ('.cram', f'-C -T {wgse.BAM.Refgenome_qFN}') if wgse.BAM.file_type == "CRAM" else \
+                    ('.bam', "-b")
+
 
     BAM_qFN = wgse.BAM.file_qFN
     SUB_FN = f'{wgse.outdir.FPB}_{int(subset)}%{ext}'   # Percent in name seems legal everywhere; albeit rare in use
@@ -2698,10 +3333,75 @@ def _button_SubsetBAM():
     mainwindow_resume()
 
 
+global _track, _changeTrackWindow
+
+
+def _button_change_release_track():
+    global _track, _changeTrackWindow
+
+    _changeTrackWindow = Toplevel(wgse.window)
+    _changeTrackWindow.transient()
+    _changeTrackWindow.title(wgse.lang.i18n["TrackChangeRequestTitle"])
+    _changeTrackWindow.geometry("450x200" + offset(wgse.window.geometry(), 50))
+    _changeTrackWindow.protocol("WM_DELETE_WINDOW", lambda win=_changeTrackWindow: button_close(win, False))
+    _changeTrackWindow.iconbitmap(wgse.icon_oFP) if wgse.os_plat == "Windows" else ''
+    _changeTrackWindow.columnconfigure(0, weight=1)
+    _changeTrackWindow.rowconfigure(1, weight=1)
+
+    _tracks = [wgse.lang.i18n["Beta"], wgse.lang.i18n["Alpha"], wgse.lang.i18n["Dev"]]
+
+    Label(_changeTrackWindow, text=wgse.lang.i18n["TrackChangeRequest"], font=font['14'], justify="left"
+          ).grid(row=0, padx=5, pady=5, sticky=NW)
+
+    _track = StringVar(_changeTrackWindow)
+
+    _changeTrackCB = Combobox(_changeTrackWindow, textvariable=_track, values=_tracks, state='readonly',
+                              height=10, width=60, justify="left")
+    _changeTrackCB.set(wgse.lang.i18n[wgse.track])
+    _changeTrackCB.bind('<<ComboboxSelected>>', _button_changeTrack_handler)
+    _changeTrackCB.grid(row=1, sticky=NW)
+
+    _changeTrackWindow.update()
+    _changeTrackWindow.grab_set()  # Toplevel equivalent of mainloop
+    _changeTrackWindow.wait_window(_changeTrackWindow)
+
+
+def _button_changeTrack_handler(event):
+    global releaseTrackButton, _track, _changeTrackWindow
+
+    _changeTrackWindow.destroy()
+
+    # Rertieve user selection and convert back into internal form (from i18n)
+    i18n_track = _track.get()
+    newtrack = "Beta"  if i18n_track == wgse.lang.i18n["Beta"] else \
+               "Alpha" if i18n_track == wgse.lang.i18n["Alpha"] else \
+               "Dev"   if i18n_track == wgse.lang.i18n["Dev"] else None
+
+    if newtrack is not None and newtrack != wgse.track:
+        update_release_track(newtrack)
+        load_wgse_version()  # Create new program version string; updates wgse.track also
+        releaseTrackButton.configure(text=i18n_track)
+
+        DEBUG(f'WGS Extract: {wgse.__version__}')
+        version_fg = 'red' if is_wgse_outdated() else wgse.deflab_fg
+        versionLabel.configure(text=wgse.__version__, fg=version_fg)
+
+    mainwindow_resume()
+
+
 def button_debug_mode_toggle():
-    DEBUG("Turning DEBUG_MODE off") if wgse.DEBUG_MODE else ""
-    wgse.DEBUG_MODE = not wgse.DEBUG_MODE
-    DEBUG("***** Debug Mode Turned On *****") if wgse.DEBUG_MODE else ""
+    """ Toggle debug mode.  Note, as not in the settings file, must add or remove the file for startup mode. """
+    from pathlib import Path
+
+    if wgse.DEBUG_MODE:
+        DEBUG("***** DEBUG_MODE off *****")
+        os.remove(wgse.debugset_oFN)
+        wgse.DEBUG_MODE = False
+    else:
+        wgse.DEBUG_MODE = True
+        Path(wgse.debugset_oFN).touch()
+        DEBUG("***** DEBUG_MODE on  *****")
+
     mainwindow_reset()
     mainwindow_resume()
 
@@ -2753,10 +3453,12 @@ def button_set_language():
         wgse.window.withdraw()
         selectLanguageWindow = Toplevel(wgse.window)
         selectLanguageWindow.transient()
+        selectLanguageWindow.geometry(offset(wgse.window.geometry(), 50))
     else:
         selectLanguageWindow = Tk()
+        selectLanguageWindow.geometry("")
+
     selectLanguageWindow.title(wgse.lang.i18n["RequestLanguage"] if wgse.lang.language else "Please Select Language")
-    selectLanguageWindow.geometry("")
     selectLanguageWindow.protocol("WM_DELETE_WINDOW", lambda win=selectLanguageWindow: button_close(win, False))
     selectLanguageWindow.iconbitmap(wgse.icon_oFP) if wgse.os_plat == "Windows" else ''
     selectLanguageWindow.columnconfigure(0, weight=1)
@@ -2778,7 +3480,6 @@ def button_set_language():
         # mainwindow_resume()       # Handled in switch_language()
     else:
         selectLanguageWindow.mainloop()  # Run because we ask for language before setting up main window and its loop
-    DEBUG("Finally returned from button_set_language")
 
 
 def button_set_referencelibrary():
@@ -2800,6 +3501,8 @@ def button_set_referencelibrary():
 
         wgse.reflib.change(reflib_FP)
         reflibDirectoryButton.configure(text=wgse.reflib.FB if wgse.reflib.set else wgse.lang.i18n['Default'])
+        reflibDirectoryButton.configure(font=font['14b'] if wgse.reflib.set else font['14'])
+        reflibDirectoryButton.configure(bg=cyan if wgse.reflib.set else wgse.defbut_bg)
 
     mainwindow_resume()
 
@@ -2861,12 +3564,14 @@ def mainwindow_init():
     root.title("WGS Extract")
     root.geometry(wgse.mainwindow_size)
     root.protocol("WM_DELETE_WINDOW", button_exit)
-    root.iconbitmap(wgse.icon_oFP) if wgse.os_plat == "Windows" else ''
     root.columnconfigure(0, weight=1)
     root.rowconfigure(1, weight=1)
 
     # Let's hide window until mainwindow_setup fills it in. Created now so can have dialogs like language selection.
     root.withdraw()
+
+    # iconbitmap call causes window to appear. If before withdraw, causes window to flash on
+    root.iconbitmap(wgse.icon_oFP) if wgse.os_plat == "Windows" else ''
 
     return root
 
@@ -2878,7 +3583,7 @@ def mainwindow_reset():
         wgse.window.destroy()  # Kill current mainwindow
         top_level = False
         wgse.window = mainwindow_init()         # Create new mainWindow in new language or fonts settings
-        wgse.fonts = FontTypes()                # Create new Fonts subsystem (requires window setup first)
+        wgse.fonts = FontTypes(top_level)       # Create new Fonts subsystem (requires window setup first)
         wgse.load_settings(top_level)           # Reload settings as may override default fonts, etc.
         mainwindow_setup()                      # Fill in new mainWindow (sets wgse.dnaImage)
         # Need to call mainloop again after window destroy?
@@ -2892,14 +3597,15 @@ def mainwindow_setup():
 
     wgse.window not null says mainwindow_init() call made.  wgse.dnaImage not null says this mainwindow_setup called.
     """
-    global all_action_buttons
+    global all_action_buttons, font
 
     # Need to globally reset labels and buttons for Settings (Output Dir, BAM File)
-    global documentationButton, exitButton, titleFileLabel
-    global outputDirectoryLabel, outputDirectoryButton, langSelectLabel, langSelectButton, lreloadButton
+    global versionLabel, documentationButton, exitButton, titleFileLabel, titleCommandLabel
+    global outdirLabel, outdirButton, outdirUnselectButton, langSelectLabel, langSelectButton, lreloadButton
     global reflibDirectoryLabel, reflibDirectoryButton, tempDirectoryLabel, tempDirectoryButton
     global prefServerButton, bamSelectedLabel, bamSelectButton, bamReferenceGenomeLabel
     # Need to globally adjust summary stats of BAM (and enable/disable its detailed stats button)
+    global infoLabelMapAvgReadDepth, infoLabelGender, infoLabelChroms
     global bamMapAvgReadDepthLabel, bamGenderLabel, bamChromsLabel, bamFsizeLabel      # bamAverageReadLengthLabel,
     global bamIdxstatsButton, bamHeaderButton, bamIndexButton, bamSortButton, bamConvertButton, bamWESButton
     global bamRealignButton, bamUnselectButton
@@ -2913,7 +3619,7 @@ def mainwindow_setup():
     # Debug_MODE only buttons
     global wslbwaButton, runMicroParallelButton, subsetBAMButton
     global maxsettingsLabel, maxmemButton, maxmemLabel, maxthreadButton, maxthreadLabel
-    global fontsetLabel, fontsizeButton, fontfaceButton, wresetButton, font
+    global fontsetLabel, fontsizeButton, fontfaceButton, wresetButton, releaseTrackButton
 
     def_bg = wgse.window.cget("background")
 
@@ -2935,23 +3641,32 @@ def mainwindow_setup():
     dnaLabel = Label(dnaFrame, compound="center", text="", image=wgse.dnaImage)
     dnaLabel.grid(row=0, column=0, padx=1, pady=1)  # command=lambda: webbrowser.open_new(wgse.manual_url)
 
+    wgse.deflab_fg = dnaLabel.cget("foreground")     # Saved default label text color
+
     # Title (program name, version, manual / exit buttons, current set file name)
     headlineFrame = Frame(dnaFrame)
     headlineFrame.grid(row=0, column=1, padx=1)
 
-    Label(headlineFrame, text="WGS Extract", font=font['32']).grid(column=0, row=0, columnspan=2)
-    Label(headlineFrame, text=wgse.__version__, font=font['12']).grid(column=0, row=1, columnspan=2)
+    Label(headlineFrame, text="WGS Extract", font=font['32']).grid(column=0, row=0, columnspan=3)
+    version_fg = 'red' if is_wgse_outdated() else wgse.deflab_fg
 
     documentationButton = Button(headlineFrame, text=wgse.lang.i18n['WGSExtractManual'],
                                  font=font['13'], command=lambda: webbrowser.open_new(wgse.manual_url))
-    documentationButton.grid(column=0, row=2)
-    exitButton = Button(headlineFrame, text=wgse.lang.i18n['ExitProgram'], font=font['13'], command=button_exit)
-    exitButton.grid(column=1, row=2)
+    documentationButton.grid(column=0, row=1)
 
-    wgse.defbut_bg = exitButton.cget("background")      # Saved default button background so can revert colored buttons
+    versionLabel = Label(headlineFrame, text=F' {wgse.__version__} ', font=font['12b'], fg=version_fg)
+    versionLabel.grid(column=1, row=1)
+
+    exitButton = Button(headlineFrame, text=wgse.lang.i18n['ExitProgram'], font=font['13'], command=button_exit)
+    exitButton.grid(column=2, row=1)
+
+    wgse.defbut_bg = exitButton.cget("background")       # Saved default button background so can revert colored buttons
 
     titleFileLabel = Label(headlineFrame, text="", font=font['12'])
-    titleFileLabel.grid(column=0, row=3, columnspan=2, pady=3)
+    titleFileLabel.grid(column=0, row=2, columnspan=3, pady=3)
+
+    titleCommandLabel = Label(headlineFrame, text="", font=font['12'])
+    titleCommandLabel.grid(column=0, row=3, columnspan=3, pady=3)
 
     # Setup Tabs area (notebook sub-frames) for Main Window (TTK feature)
     tabParent = Notebook(wgse.window)
@@ -2977,30 +3692,32 @@ def mainwindow_setup():
 
     # Settings frame        (these buttons always available; so no state set)
     fileSelectFrame = LabelFrame(tabSettings, text=wgse.lang.i18n['FrameSettings'], font=font['14'])
-    fileSelectFrame.grid(row=1, padx=10, pady=5, sticky=(N, S, E, W))
+    fileSelectFrame.grid(row=1, padx=10, pady=5, sticky=NSEW)
     fileSelectFrame.columnconfigure(1, weight=1)
     fileSelectFrame.rowconfigure(3, weight=1)
     crow = 0
 
     # Output Directory setting
-    outputDirectoryLabel = Label(fileSelectFrame, text=wgse.lang.i18n['OutputDirectory'],
-                                 font=font['14'])
-    outputDirectoryLabel.grid(column=0, row=crow, padx=5, pady=2)
-    butlabel = wgse.outdir.FB if wgse.outdir.oFP else wgse.lang.i18n['SelectOutputDirectory']
-    outputDirectoryButton = Button(fileSelectFrame, text=butlabel, font=font['14'], command=button_select_output_path)
-    outputDirectoryButton.grid(column=1, columnspan=3, row=crow, padx=5, pady=2, sticky=W); crow += 1
+    outdirLabel = Label(fileSelectFrame, text=wgse.lang.i18n['OutputDirectory'], font=font['14'])
+    outdirLabel.grid(column=0, row=crow, padx=5, pady=2)
+    butlabel = wgse.outdir.FB if wgse.outdir and wgse.outdir.FP and wgse.outdir.user_set else wgse.lang.i18n['Default']
+    outdirButton = Button(fileSelectFrame, text=butlabel, font=font['14'], command=button_select_outdir)
+    outdirButton.grid(column=1, columnspan=2, row=crow, padx=5, pady=2, sticky=W)
+    outdirUnselectButton = Button(fileSelectFrame, text=wgse.lang.i18n['Unselect'], font=font['14'],
+                                  command=button_unselect_outdir)
+    outdirUnselectButton.grid(column=3, row=crow, padx=5, pady=2); crow += 1
+    if not (wgse.outdir and wgse.outdir.oFP):
+        outdirUnselectButton.grid_remove()         # Will not display if no directory selected
 
     # Reference Library Directory setting (default: reference_library in installation directory)
-    reflibDirectoryLabel = Label(fileSelectFrame, text=wgse.lang.i18n['ReferenceLibrary'],
-                                 font=font['14'])
+    reflibDirectoryLabel = Label(fileSelectFrame, text=wgse.lang.i18n['ReferenceLibrary'], font=font['14'])
     reflibDirectoryLabel.grid(column=0, row=crow, padx=5, pady=2)
     butlabel = wgse.reflib.FB if wgse.reflib.set else wgse.lang.i18n['Default']
     reflibDirectoryButton = Button(fileSelectFrame, text=butlabel, font=font['14'], command=button_set_referencelibrary)
     reflibDirectoryButton.grid(column=1, columnspan=3, row=crow, padx=5, pady=2, sticky=W); crow += 1
 
     # Temporary Files Directory setting (default: temp directory in installation directory)
-    tempDirectoryLabel = Label(fileSelectFrame, text=wgse.lang.i18n['TempDirectory'],
-                               font=font['14'])
+    tempDirectoryLabel = Label(fileSelectFrame, text=wgse.lang.i18n['TempDirectory'], font=font['14'])
     tempDirectoryLabel.grid(column=0, row=crow, padx=5, pady=2)
     butlabel = wgse.tempf.FB if wgse.tempf and wgse.tempf.set else wgse.lang.i18n['Default']
     tempDirectoryButton = Button(fileSelectFrame, text=butlabel, font=font['14'], command=button_set_tempdir)
@@ -3030,7 +3747,7 @@ def mainwindow_setup():
 
     # BAM File Selection and Stats      (Buttons initially disabled until enabled by other actions)
     fileInfoFrame = LabelFrame(tabSettings, text=wgse.lang.i18n['FrameBAM'], font=font['14'])
-    fileInfoFrame.grid(row=2, padx=10, pady=5, sticky=(N, S, E, W))
+    fileInfoFrame.grid(row=2, padx=10, pady=5, sticky=NSEW)
     fileInfoFrame.columnconfigure(1, weight=1)
     fileInfoFrame.rowconfigure(0, weight=1)
     crow = 0
@@ -3053,8 +3770,8 @@ def mainwindow_setup():
                              command=button_select_BAM_file, state="disabled")
     bamSelectButton.grid(column=2, row=crow, padx=5, pady=2, columnspan=fileInfoColSpan, sticky=W); crow += 1
 
-    infoLabelReferenceGenomeOfBam = Label(fileInfoFrame,
-                                          text=wgse.lang.i18n['BAMAlignedToReferenceGenome'], font=font['14'])
+    infoLabelReferenceGenomeOfBam = Label(fileInfoFrame, text=wgse.lang.i18n['BAMAlignedToReferenceGenome'],
+                                          font=font['14'])
     infoLabelReferenceGenomeOfBam.grid(column=0, row=crow, padx=5, pady=2, columnspan=fileLabelColSpan)
     bamReferenceGenomeLabel = Label(fileInfoFrame, text="", font=font['14b'])
     bamReferenceGenomeLabel.grid(column=2, row=crow, padx=5, pady=2, columnspan=fileInfoColSpan); crow += 1
@@ -3138,15 +3855,15 @@ def mainwindow_setup():
 
     # ------------ Microarray / Autosomal Frame -------------------------
     autosomesFrame = LabelFrame(tabExtract, text=wgse.lang.i18n['FrameMicroarray'], font=font['16'])
-    autosomesFrame.grid(row=2, columnspan=2, padx=10, pady=2, sticky=(N, S, E, W))
+    autosomesFrame.grid(row=2, columnspan=2, padx=10, pady=2, sticky=NSEW)
     autosomesFrame.columnconfigure(0, weight=1)
     autosomesFrame.rowconfigure(1, weight=1)
 
     autosomesLabel = Label(autosomesFrame, text=wgse.lang.i18n['AutosomesDescr'], font=font['14'])
     autosomesLabel.grid(column=0, row=0, rowspan=2, padx=5, pady=2)
 
-    autosomalFormatsButton = Button(autosomesFrame, text=wgse.lang.i18n['GoToSelectAutosomalFormats'], font=font['14'],
-                                    command=button_select_autosomal_formats, state="disabled")
+    autosomalFormatsButton = Button(autosomesFrame, text=wgse.lang.i18n['SelectAutosomalFormats'], font=font['14'],
+                                    command=button_microarray_window, state="disabled")
     autosomalFormatsButton.grid(column=1, row=0, padx=5, pady=2)
 
     autosomesTrailerLabel = Label(autosomesFrame, text=wgse.lang.i18n['AutosomesTrailer'], font=font['13'])
@@ -3154,7 +3871,7 @@ def mainwindow_setup():
 
     # ------------ Mitochondial Frame -------------------------
     mitoFrame = LabelFrame(tabExtract, text=wgse.lang.i18n['FrameMitochondrialDNA'], font=font['16'])
-    mitoFrame.grid(row=3, columnspan=2, padx=10, pady=2, sticky=(N, S, E, W))
+    mitoFrame.grid(row=3, columnspan=2, padx=10, pady=2, sticky=NSEW)
     mitoFrame.columnconfigure(0, weight=1)
     mitoFrame.rowconfigure(0, weight=1)
 
@@ -3180,7 +3897,7 @@ def mainwindow_setup():
 
     # ------------ Y Chromosome Frame -------------------------
     yFrame = LabelFrame(tabExtract, text=wgse.lang.i18n['FrameYDNA'], font=font['16'])
-    yFrame.grid(row=4, columnspan=2, padx=10, pady=2, sticky=(N, S, E, W))
+    yFrame.grid(row=4, columnspan=2, padx=10, pady=2, sticky=NSEW)
     yFrame.columnconfigure(0, weight=1)
     yFrame.rowconfigure(1, weight=1)
 
@@ -3206,7 +3923,7 @@ def mainwindow_setup():
     # Analyze Tab
 
     haplogroupFrame = LabelFrame(tabAnalyze, text=wgse.lang.i18n['FrameHaplogroups'], font=font['16'])
-    haplogroupFrame.grid(row=2, padx=10, pady=5, sticky=(N, S, E, W))
+    haplogroupFrame.grid(row=2, padx=10, pady=5, sticky=NSEW)
     haplogroupFrame.columnconfigure(0, weight=1)
     haplogroupFrame.rowconfigure(1, weight=1)
 
@@ -3222,7 +3939,7 @@ def mainwindow_setup():
           font=font['13']).grid(columnspan=3, row=1, padx=5, pady=2)
 
     oralMicrobiomeFrame = LabelFrame(tabAnalyze, text=wgse.lang.i18n['FrameOralMicrobiome'], font=font['16'])
-    oralMicrobiomeFrame.grid(row=3, padx=10, pady=5, sticky=(N, S, E, W))
+    oralMicrobiomeFrame.grid(row=3, padx=10, pady=5, sticky=NSEW)
     oralMicrobiomeFrame.columnconfigure(0, weight=1)
     oralMicrobiomeFrame.rowconfigure(1, weight=1)
 
@@ -3234,7 +3951,7 @@ def mainwindow_setup():
 
     # FASTQ Files Frame
     fastqFrame = LabelFrame(tabAnalyze, text=wgse.lang.i18n['FrameFASTQFiles'], font=font['16'])
-    fastqFrame.grid(row=4, padx=10, pady=5, sticky=(N, S, E, W))
+    fastqFrame.grid(row=4, padx=10, pady=5, sticky=NSEW)
     fastqFrame.columnconfigure(0, weight=1)
     fastqFrame.rowconfigure(1, weight=1)
 
@@ -3256,7 +3973,7 @@ def mainwindow_setup():
 
     # VCF Files Frame
     vcfFrame = LabelFrame(tabAnalyze, text=wgse.lang.i18n['FrameVCFFiles'], font=font['16'])
-    vcfFrame.grid(row=5, padx=10, pady=5, sticky=(N, S, E, W))
+    vcfFrame.grid(row=5, padx=10, pady=5, sticky=NSEW)
     vcfFrame.columnconfigure(0, weight=1)
     vcfFrame.rowconfigure(1, weight=1)
 
@@ -3306,9 +4023,9 @@ def mainwindow_setup():
                              font=font['14'], command=_button_SubsetBAM)
 
     # Button to run microarray generation in parallel (experimental; known problems with hsxx models)
-    runMicroParallelLabel = Label(debugFrame, text=wgse.lang.i18n['buttonCombinedKitParallel'], font=font['14'])
+    runMicroParallelLabel = Label(debugFrame, text=wgse.lang.i18n['buttonAllSNPsParallel'], font=font['14'])
     runMicroParallelButton = Button(debugFrame, text=wgse.lang.i18n['buttonGenerateSelectedFiles'], font=font['14'],
-                                    command=lambda win=wgse.window: _button_CombinedKit(win, parallel=True))
+                                    command=lambda win=wgse.window: _button_AllSNPs(win, parallel=True))
 
     # Windows 10 WSL2 BWA Aligner Override
     wsllabel = wgse.lang.i18n['Active'] if wgse.wsl_bwa_patch else wgse.lang.i18n['Inactive']
@@ -3348,9 +4065,15 @@ def mainwindow_setup():
                                     command=lambda l=lang: wgse.lang.switch_language(l))
         langcol += 1
 
+    releaseLabel = Label(debugFrame, text=wgse.lang.i18n["ReleaseTrack"], font=font['14'])
+    releaseTrackButton = Button(debugFrame, text=wgse.lang.i18n[wgse.track], font=font['14'],
+                                command=_button_change_release_track)
+    releaseUpdateReleaseButton = Button(debugFrame, text=wgse.lang.i18n['UpdateRelease'], font=font['14'],
+                                        command=update_release)
+
+    # debugFrame and content only becomes visible when we grid it; so do that now if debug mode is on
     if wgse.DEBUG_MODE:
-        # debugFrame will only become visible if we grid so ...
-        debugFrame.grid(row=6, padx=10, pady=5, sticky=(N, S, E, W))
+        debugFrame.grid(row=6, padx=10, pady=5, sticky=NSEW)
 
         crow=0
         subsetBAMLabel.grid(row=crow, column=0, columnspan=3, padx=5, pady=2)
@@ -3393,6 +4116,10 @@ def mainwindow_setup():
             ccol = (ccol + span) % maxcol
             crow += 1 if ccol == 0 else 0
 
+        crow += 1
+        releaseLabel.grid(row=crow, column=0, padx=5, pady=2)
+        releaseTrackButton.grid(row=crow, column=1, padx=5, pady=2)
+        releaseUpdateReleaseButton.grid(row=crow, column=2, padx=5, pady=2)
 
     # Todo add theme setting and button to change it  (in development; may change GUI from tkinter before completing)
     ''' Developing code to allow a theme change setting
@@ -3409,25 +4136,25 @@ def mainwindow_setup():
 
     # Colorize long run buttons; pink for an one to three hours; deep red for 4+ hours (Align)
     # Todo Do not color if results file available or specific direction that is less (e.g. CRAM to BAM)
-    bamRealignButton.config(bg='red')
-    bamAlignButton.config(bg='red')
-    autosomalFormatsButton.config(bg='#ffb3fe')
-    fastqFastqcButton.config(bg='#ffb3fe')
-    bamConvertButton.config(bg='#ffb3fe')
-    SNPVCFButton.config(bg='#ffb3fe')
-    InDelVCFButton.config(bg='#ffb3fe')
-    CNVVCFButton.config(bg='#ffb3fe')
-    SVVCFButton.config(bg='#ffb3fe')
+    bamRealignButton.config(bg=red)
+    bamAlignButton.config(bg=red)
+    autosomalFormatsButton.config(bg=pink)
+    fastqFastqcButton.config(bg=pink)
+    bamConvertButton.config(bg=pink)
+    SNPVCFButton.config(bg=pink)
+    InDelVCFButton.config(bg=pink)
+    CNVVCFButton.config(bg=pink)
+    SVVCFButton.config(bg=pink)
 
     # If default value has been changed (overriden) by user (setting), then color button to indicate so
     override = 2 <= wgse.os_totmem_saved < wgse.os_totmem_proc // 10**9
-    maxmemButton.configure(bg='#ffb3fe' if override else wgse.defbut_bg)
+    maxmemButton.configure(bg=cyan if override else wgse.defbut_bg)
     override = 1 <= wgse.os_threads_saved < wgse.os_threads_proc
-    maxthreadButton.configure(bg='#ffb3fe' if override else wgse.defbut_bg)
+    maxthreadButton.configure(bg=cyan if override else wgse.defbut_bg)
     override = wgse.fonts.default_basept != wgse.fonts.basept
-    fontsizeButton.configure(bg='#ffb3fe' if override else wgse.defbut_bg)
+    fontsizeButton.configure(bg=cyan if override else wgse.defbut_bg)
     override = wgse.fonts.default_face != wgse.fonts.face
-    fontfaceButton.configure(bg='#ffb3fe' if override else wgse.defbut_bg)
+    fontfaceButton.configure(bg=cyan if override else wgse.defbut_bg)
 
     # Listing of main window action buttons that may need the state changed based on content of the loaded BAM file
     # Does not include Settings buttons nor BAM file button itself which are handled separately.
@@ -3462,9 +4189,9 @@ def mainwindow_setup():
         InDelVCFButton,
         CNVVCFButton,
         SVVCFButton,
-        # VarQCButton,
         # AnnotateVCFButton,     # Not a typical action button. Always available unless outputdir not set.
         # FilterVCFButton,       # Not a typical action button. Always available unless outputdir not set.
+        # VarQCButton,           # Not a typical action button. Always available unless outputdir not set.
         # DEBUG Tab
         # lselButton[numlangs]   # Language buttons are dynamic and dependent on content of languages.xlsx file
         # wslbwaButton,

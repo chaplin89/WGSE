@@ -1,5 +1,11 @@
 # coding: utf8
-# Copyright (C) 2022 Randy Harr
+#
+# FASTQ / FASTA File manipulation and library module
+#
+# Part of the
+# WGS Extract (https://wgse.bio/) system
+#
+# Copyright (C) 2022-2023 Randy Harr
 #
 # License: GNU General Public License v3 or later
 # A copy of GNU GPL v3 should have been included in this software package in LICENSE.txt.
@@ -16,7 +22,7 @@ import re
 import gzip
 from math import sqrt
 
-from utilities import DEBUG, is_legal_path, nativeOS, universalOS, unquote, Error, Warning, wgse_message
+from utilities import DEBUG, is_legal_path, nativeOS, universalOS, unquote, wgse_message
 from commandprocessor import run_bash_script
 import settings as wgse
 
@@ -48,7 +54,7 @@ def process_FASTQ(fastq_FN, paired=True):
                 if line[0] == '#':      # Skip header; do not count (new spec coming out with header)
                     continue
                 else:   # line[0] == '@':   # First line and sequencer label
-                    seqid = determine_sequencer(line.strip().split("\t")[0][1:])
+                    seqid = determine_sequencer(re.split("[ \t]", line.strip())[0][1:])
                     line_cnt = 1
             elif line_cnt > 20000:      # Only at end; Average first 5K segments (4 lines per segment)
                 line_cnt -= 1
@@ -71,8 +77,8 @@ def process_FASTQ(fastq_FN, paired=True):
         numsegs *= 2 if paired else 1
 
     DEBUG(
-        f'FASTQ Stats: ID - "{seqid}, # segs - {numsegs},' 
-        f' avg read length - {avg_read_length}, read len stddev - {avg_read_stddev}')
+        f'FASTQ Stats: ID - "{seqid}, # segs - {numsegs:,d},' 
+        f' avg read length - {avg_read_length:,.0f}, read len stddev - {avg_read_stddev:,.0f}')
     return seqid, numsegs, avg_read_length          # e.g. return "Illumima", 660000000, 150
 
 

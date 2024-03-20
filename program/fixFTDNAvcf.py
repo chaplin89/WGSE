@@ -1,5 +1,13 @@
+#!/usr/bin/env python3
 # coding: utf8
-# Copyright (C) 2022 Randy Harr
+#
+# Fixes FTDNA BigY VCF files that are not VCF Format 4.x compliant
+#
+# Part of the
+# WGS Extract (https://wgse.bio/) system
+#  (stand alone; pipeline stream operation that uses stdin / stdout)
+#
+# Copyright (C) 2022-2023 Randy Harr
 #
 # License: GNU General Public License v3 or later
 # A copy of GNU GPL v3 should have been included in this software package in LICENSE.txt.
@@ -9,8 +17,9 @@ Standalone script to fix FTDNA BigY VCF files. FTDNA VCF files include key=value
 which is not allowed by the VCF spec; especially not the 4.1 they claim to follow in the header.  So we substitute all
 Filter entries with these illegal values with a fixed (allowed) indicator that we also add to the header.  Most of the
 values can be found elwewhere in the VCF row entry (DP, Qual, etc) so not really losing anything. But gain being
-able to use bcftools on the files (to annotate with yBrowse listing, for example). See
-https://gist.github.com/RandyHarr/2cbb8901306891e810d698ab27d212ce for shell script use example to annotate
+able to use bcftools on the files (to annotate with yBrowse listing, for example).
+
+See https://gist.github.com/RandyHarr/2cbb8901306891e810d698ab27d212ce for shell script use example to annotate
 FTDNA VCF files with yBrowse SNP names and haplogroups.
 """
 

@@ -97,7 +97,7 @@ def button_select_autosomal_formats():
     selectAutosomalFormatsWindow.protocol("WM_DELETE_WINDOW", cancel_autosomal_formats_window)
     selectAutosomalFormatsWindow.title(wgse.lang.i18n['TitleSelectAutosomalFormats'])
     selectAutosomalFormatsWindow.geometry(wgse.microarr_winsize)
-    selectAutosomalFormatsWindow.iconbitmap(wgse.icon_oFP) if wgse.os_plat == "Windows" else ''
+    selectAutosomalFormatsWindow.iconbitmap(wgse.icon) if wgse.os_plat == "Windows" else ''
     selectAutosomalFormatsWindow.columnconfigure(0, weight=1)
     selectAutosomalFormatsWindow.rowconfigure(0, weight=1)
 
@@ -512,7 +512,7 @@ def button_generate_selected_autosomal():
 
         python = wgse.python3x_qFN
         aconv = f'"{wgse.prog_FP}aconv.py"'
-        cmdzip = wgse.zipx_qFN
+        cmdzip = wgse.zip
 
         commands = ""
         stop = len(checkbuttons_results) - (0 if wgse.DEBUG_MODE else 6)    # New formats not quite ready for primetime
@@ -528,18 +528,18 @@ def button_generate_selected_autosomal():
                 out_compressed_qFN = f'"{out_FPB}_{kits[i]}.zip"'
                 commands += (
                     f'echo "Generating microarray file for format {kits[i]}"\n'
-                    f'{python} {aconv} {kits[i]} "{out_FPB_cmbkit}.txt" "{out_FPB}" "{wgse.reflib.cma_FP}"\n'
+                    f'{python} {aconv} {kits[i]} "{out_FPB_cmbkit}.txt" "{out_FPB}" "{wgse.reference.cma_FP}"\n'
                     f'{cmdzip} -mj {out_compressed_qFN} {out_uncompressed_qFN}\n'  # Do a move; delete uncompressed
                 )
 
         run_bash_script("ButtonMicroarrayDNA", commands, parent=selectAutosomalFormatsWindow)
 
     # Handle CombinedKit file cleanup based on whether requested and/or reused an existing copy
-    wgse.tempf.list.append(CombinedKitTXT_oFN)      # Always delete the uncompressed version;
+    wgse.temporary.list.append(CombinedKitTXT_oFN)      # Always delete the uncompressed version;
     # if reused or asked to save by clicking or big enough (to not be in an error), then delete the zip file also
     if not (reuse or checkbuttons_results[kits.index("CombinedKit")]) or \
        os.path.getsize(CombinedKitZIP_oFN) < minCbnKitSize:
-        wgse.tempf.list.append(CombinedKitZIP_oFN)
+        wgse.temporary.list.append(CombinedKitZIP_oFN)
 
     # button_autosomal_stats()
 
@@ -566,7 +566,7 @@ def _button_CombinedKit(parent_window, parallel=False):
     refgen_qFN = wgse.BAM.Refgenome_qFN
 
     # Select reference genome. Add liftover command to modify CombinedKit if GRCh38/HG38
-    refVCFtab_qFN = wgse.reflib.get_reference_vcf_qFN(wgse.BAM.Build, wgse.BAM.SNTypeC, type="Microarray")
+    refVCFtab_qFN = wgse.reference.get_reference_vcf_qFN(wgse.BAM.Build, wgse.BAM.SNTypeC, type="Microarray")
     if not os.path.isfile(nativeOS(unquote(refVCFtab_qFN))):
         wgse_message("error", "errRefLibMissingFileTitle", True,
                      wgse.lang.i18n["errRefLibMissingCombKitTable"].replace("{{FILE}}", refVCFtab_qFN))
@@ -586,28 +586,28 @@ def _button_CombinedKit(parent_window, parallel=False):
         return
 
     # Setup additional filenames and paths
-    temp_called_vcf = f'"{wgse.tempf.FP}CombKit_called.vcf.gz"'
-    temp_annotated_vcf = f'"{wgse.tempf.FP}CombKit_annotated.vcf.gz"'
-    temp_result_tab = f'"{wgse.tempf.FP}CombKit_result.tab"'
-    temp_sorted_result_tab = f'"{wgse.tempf.FP}CombKit_result_sorted.tab"'
+    temp_called_vcf = f'"{wgse.temporary.FP}CombKit_called.vcf.gz"'
+    temp_annotated_vcf = f'"{wgse.temporary.FP}CombKit_annotated.vcf.gz"'
+    temp_result_tab = f'"{wgse.temporary.FP}CombKit_result.tab"'
+    temp_sorted_result_tab = f'"{wgse.temporary.FP}CombKit_result_sorted.tab"'
     # In case DEBUG mode on and Temp directory not being cleared out; lets clear these files to make sure not reused
-    wgse.tempf.list.append(temp_called_vcf) if os.path.exists(temp_called_vcf) else ""
-    wgse.tempf.list.append(temp_annotated_vcf) if os.path.exists(temp_annotated_vcf) else ""
-    wgse.tempf.list.append(temp_result_tab) if os.path.exists(temp_result_tab) else ""
-    wgse.tempf.list.append(temp_sorted_result_tab) if os.path.exists(temp_sorted_result_tab) else ""
+    wgse.temporary.list.append(temp_called_vcf) if os.path.exists(temp_called_vcf) else ""
+    wgse.temporary.list.append(temp_annotated_vcf) if os.path.exists(temp_annotated_vcf) else ""
+    wgse.temporary.list.append(temp_result_tab) if os.path.exists(temp_result_tab) else ""
+    wgse.temporary.list.append(temp_sorted_result_tab) if os.path.exists(temp_sorted_result_tab) else ""
 
-    temp_head_qFN = f'"{wgse.reflib.cma_FP}raw_file_templates/head/23andMe_V3.txt"'
-    ploidy_qFN = f'"{wgse.reflib.cma_FP}ploidy.txt"'
+    temp_head_qFN = f'"{wgse.reference.cma_FP}raw_file_templates/head/23andMe_V3.txt"'
+    ploidy_qFN = f'"{wgse.reference.cma_FP}ploidy.txt"'
 
-    # samtools = wgse.samtoolsx_qFN
-    bcftools = wgse.bcftoolsx_qFN
-    tabix = wgse.tabixx_qFN
-    sed = wgse.sedx_qFN
-    sort = wgse.sortx_qFN
-    cat = wgse.catx_qFN
-    cmdzip = wgse.zipx_qFN
-    cmdunzip = wgse.unzipx_qFN
-    cpus = wgse.os_threads
+    # samtools = wgse.samtools
+    bcftools = wgse.bcftools
+    tabix = wgse.tabix
+    sed = wgse.sed
+    sort = wgse.sort
+    cat = wgse.cat
+    cmdzip = wgse.zip
+    cmdunzip = wgse.unzip
+    cpus = wgse.threads
 
     CombinedKitTXT_oFN = nativeOS(f'{out_FPB_cmbkit}.txt')
     CombinedKitZIP_oFN = nativeOS(f'{out_FPB_cmbkit}.zip')
@@ -624,7 +624,7 @@ def _button_CombinedKit(parent_window, parallel=False):
             commands = f'{cmdunzip} -oj "{out_FPB_cmbkit}.zip" -d "{out_FP}" "{out_FB_cmbkit}.txt"\n'
         reuse = True
     else:  # Have to create a CombinedKit from scratch; use Outdir for result but delete if not requested later
-        if wgse.reflib.missing_refgenome(refgen_qFN, parent_window):
+        if wgse.reference.missing_refgenome(refgen_qFN, parent_window):
             return False       # missing_refgenome() reports sn error if reference genome does not exist
 
         '''
@@ -658,7 +658,7 @@ def _button_CombinedKit(parent_window, parallel=False):
             #  and later error by using special ploidy.txt to give diploid for now.
             # ploidy = "GRCh38" if wgse.BAM.Build == 38 else "GRCh37" if wgse.BAM.Build == 37 or wgse.BAM.Build == 19 else "X"
             for chrom in wgse.valid_chromosomes:    # Using internal list; always same chromosome name convention
-                chrtmp = f'"{wgse.tempf.FP}{chrom}.vcf.gz"'  # Put each chromosome VCF in temp for later cleanup
+                chrtmp = f'"{wgse.temporary.FP}{chrom}.vcf.gz"'  # Put each chromosome VCF in temp for later cleanup
                 # For GRCh numbering, need to remove "chr" from valid_chromosome name and add T to Mito name
                 fchrom = chrom.replace('chr', '').replace("M", "MT") if wgse.BAM.SNTypeC == "Num" else chrom
                 # Old versus new pileup command; old using samtools generates a warning that we should switch to new
@@ -673,7 +673,7 @@ def _button_CombinedKit(parent_window, parallel=False):
             #  when using 25 fully qualified file names; all files are in temp directory and will get deleted at end
             commands += (
                 f'wait\n'
-                f'(cd {wgse.tempf.FP}; {bcftools} concat -Oz -o {temp_called_vcf} '
+                f'(cd {wgse.temporary.FP}; {bcftools} concat -Oz -o {temp_called_vcf} '
                 f' chr[1-9].vcf.gz chr[1-2][0-9].vcf.gz chr[M,X,Y].vcf.gz )\n'
             )
 

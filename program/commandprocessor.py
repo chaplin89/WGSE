@@ -1,6 +1,13 @@
 # coding: utf8
+#
+# Command Processor module:
+#  Implementating all sub-process calls (with PleaseWait pop-up where desired)
+#
+# Part of the
+# WGS Extract (https://wgse.bio/) system
+#
 # Copyright (C) 2018-2020 City Farmer
-# Copyright (C) 2020-2022 Randy Harr
+# Copyright (C) 2020-2023 Randy Harr
 #
 # License: GNU General Public License v3 or later
 # A copy of GNU GPL v3 should have been included in this software package in LICENSE.txt.
@@ -25,7 +32,7 @@ import time         # time.time()
 import subprocess   # Popen, run, etc
 import platform
 if platform.uname().system != "Linux":
-    from wakepy import set_keepawake, unset_keepawake   # Ugly, but cannot import on Ubuntu aparently
+    from wakepy import set_keepawake, unset_keepawake   # Ugly, but cannot import on Ubuntu / Linux aparently
 else:
     # from elevate import elevate                       # Only needed for wakepy on Linux
     # from wakepy import set_keepawake, unset_keepawake
@@ -33,7 +40,7 @@ else:
 
 from tkinter import Toplevel, Label
 
-from utilities import DEBUG, wgse_message
+from utilities import DEBUG, wgse_message, offset, time_label
 import settings as wgse
 # from mainwindow import mainwindow_resume     # embedded in button_continueAfterBatchJob to break loop
 
@@ -41,7 +48,7 @@ import settings as wgse
 ####################################################################################################################
 # Command Execution Subsection
 
-pleaseWaitWindow = None
+pleaseWaitWindow = None         # Purely for tkinter pleaseWaitWindow created then destroyed; loop if put in mainwindow
 
 
 def is_command_available(command, opt, internal=True):
@@ -101,27 +108,23 @@ def simple_command(command_and_opts):
         return result.stdout.decode('utf-8', errors='ignore').strip()   # Windows WSL2 generates errors
 
 
-def time_label(etime):
-    time_exp = (etime / 3600., 'hours')      if etime > 3600 else \
-                (int(etime / 60), 'minutes') if etime > 60 else \
-                (etime, 'seconds')
-    return f"{time_exp[0]:3.1f} {time_exp[1]}" if time_exp[1] == 'hours' else f"{time_exp[0]:3d} {time_exp[1]}"
-
-
-def run_external_program(script_FBS, command):
-    """ Run an external batch program with a time-limit"""
+def run_external_program(script_code, command):
+    """ Run an external batch program with a time-limit """
 
     # Due to adding the "Direct" mode to run_bash_script, script may not be last entry in command list
     command_str = os.path.basename(command[-1] if ".sh" in command[-1] else command[1])  # " ".join(command).strip()
 
     # Rough std deviation (max) from expected time (x2); more robust for table out-of-date
-    maxtime = wgse.expected_time.get(script_FBS, 3600) * 2
+    tlabel = time_label(wgse.expected_time.get(script_code, 0))
+    maxtime = wgse.expected_time.get(script_code, 3600) * 2
 
-    start_time = time.time()
-    start_ctime = time.ctime()
+    if wgse.gui or wgse.DEBUG_MODE:
+        start_time = time.time()
+        start_ctime = time.ctime()
+        # print(f'--- Exec: {command_str}, started @ {start_ctime}')     # REH 14Mar2020 Debug superceded by below
+        print(f'--- STARTING: {command_str} @ {start_ctime}, expected time is {tlabel}')
 
-    print(f'--- Exec: {command_str}, started @ {start_ctime}')     # REH 14Mar2020 Debug
-    # Blocking subprocess call (by using p.comminucate() )
+    # Using a blocking subprocess call (by using p.comminucate() )
     try:
         # subprocess.run(command_to_run_and_args, timeout=maxtime*2)
         with subprocess.Popen(command) as p:  # , stderr=subprocess.STDOUT, stdout=subprocess.PIPE, text=True) as p:
@@ -139,46 +142,59 @@ def run_external_program(script_FBS, command):
         # Todo need to handle different process termination conditions
         DEBUG(f"--- FAILURE to execute: {command_str} ----")
         raise
-    else:
+
+    if wgse.gui or wgse.DEBUG_MODE:
         stop_ctime = time.ctime()
         tlabel = time_label(round(time.time() - start_time))
-        print(f'--- SUCCESS: {tlabel} to run: {command_str} (finished @ {stop_ctime}')
+        print(f'--- FINISHED: {command_str} @ {stop_ctime}, actual time  was {tlabel}')
 
 
-def show_please_wait_window(reason, parent):
+def cancelWait():
     global pleaseWaitWindow
 
+    # DEBUG("cancelWait; unfortunately not yet implemented!")
+    # TODO Setup exception that can be caught by threads executing pleaseWait
+    pleaseWaitWindow.destroy()
+
+
+def abortWait():
+    # Todo implement abortWait()
+    # DEBUG("abortWait called; not yet implemented.")
+    cancelWait()
+
+
+def finishWait():
+    # Todo implement finishWait()
+    # DEBUG("finishWait called; not yet implemented.")
+    cancelWait()
+
+
+def show_pleasewait_window(script_code, parent):
+    global pleaseWaitWindow
+
+    verbose_reason = wgse.lang.i18n.get(script_code, f'unknown: {script_code}')
+
     # Make code more robust to errors; external language file and expected time table may not be up-to-date
-    etime = wgse.expected_time.get(reason, 0)
+    etime = wgse.expected_time.get(script_code, 0)
     # etime = round(min(1.5, etime * wgse.BAM.relfsize)) # See note below on adjusting time relative to 60 GB nominal
-    tlabel = time_label(etime) if etime else f"unknown ({reason}?)"
-    verbose_reason = wgse.lang.i18n.get(reason, f"(Internal Translation Error: {reason} unknown)")
+    tlabel = time_label(etime) if etime else verbose_reason
+
     DEBUG(f'In Please Wait: {verbose_reason}, Expected Wait: {tlabel}, Start')
-    """
+    
+    """ 
         We will adjust expected wait time by amount relative to nominal 45 GB 30x WGS file size. Floor of 0.01 adj.
         Using linear but likely not linear.  Idea is smaller, subsetted BAMs may take less time? True for operations
         that have to scan the whole file but not others?  Need to study this further and drop if nonsense.
         Does not seem to work as written; commenting out for now
     """
 
-    # Due to a limitation in the keepawake on Linux, it requires elevated (SUDO) privileges. we can request the sudo
-    # and fork the new job in elevated mode. But ugly as it creates a new command window. And stays on until WGSE is
-    # exited. No way to request a drop elevated. So just ignore and document that the feature does not work on Linux.
-    if wgse.os_plat == "Linux":     # and etime > 3600 and os.getuid() != 0:
-        # wgse.DEBUG_MODE = True  # We turn on Debug Mode so some of the open-ended "rm -rf" are not executed under sudo
-        # elevate(show_console=True)  # Request elevated privilages from the user
-        # set_keepawake()
-        pass
-    else:
-        set_keepawake()
-
     font = wgse.fonts.table if wgse and wgse.fonts else \
         {'14': ("Times New Roman", 14), '28b': ("Arial Black", 28, "Bold")}
 
-    pleaseWaitWindow = Toplevel(wgse.window)
+    pleaseWaitWindow = Toplevel(parent)
     pleaseWaitWindow.transient(parent)
     pleaseWaitWindow.title(wgse.lang.i18n['PleaseWait'])
-    pleaseWaitWindow.geometry("")
+    pleaseWaitWindow.geometry(offset(parent.geometry(), 50))
     pleaseWaitWindow.protocol("WM_DELETE_WINDOW", cancelWait)
     # pleaseWaitWindow.attributes('-topmost', 'true')
     # pleaseWaitWindow.parent.withdraw()
@@ -195,59 +211,106 @@ def show_please_wait_window(reason, parent):
     pleaseWaitWindow.grab_set()
 
 
-def cancelWait():
-    global pleaseWaitWindow
-
-    # DEBUG("cancelWait; unfortunately not yet implemented!")
-    # TODO Setup exception that can be caught by threads executing pleaseWait
-    # noinspection PyUnresolvedReferences
-    if wgse.os_plat != "Linux":
-        unset_keepawake()
-    pleaseWaitWindow.destroy()
-
-
-def abortWait():
-    # Todo implement abortWait()
-    # DEBUG("abortWait called; not yet implemented.")
-    cancelWait()
-
-
-def finishWait():
-    # Todo implement finishWait()
-    # DEBUG("finishWait called; not yet implemented.")
-    cancelWait()
-
-
-def run_bash_script(script_title, script_contents, parent=wgse.window, direct=False):
+def run_bash_script(script_code, script_contents, parent=None, direct=False):
     """
         Main entry point for commandprocessor module.  Two modes though: Direct or not.  In Direct, the
         script_contents is a shlex like list of the single, parsed command line.  No need for quotes, etc.
         In not Direct, we create a BASH script file in Temp from the supplied (multi-line) command content
         in a string, then run the newly created bash script directly.
     """
+    import mainwindow
+
+    if parent is None:
+        parent = wgse.window  # Cannot set as parameter because wgse is not defined / imported till here
+
     if not direct:
-        script_oFN = f'{wgse.tempf.oFP}{script_title}.sh'
+        script_oFN = f'{wgse.tempf.oFP}{script_code}.sh'
 
         if os.path.isfile(script_oFN):
             os.remove(script_oFN)
 
         with open(script_oFN, "wb") as f:          # 15 Mar 2020 REH Changed to binary write to keep Unix \n format
-            f.write("#!/usr/bin/env bash -x\n".encode())
+            f.write("#!/usr/bin/env bash\n".encode())   # -S or -v can pass -x to BASH. Ubuntu 18.04 doesn't support
             f.write(script_contents.encode())
         os.chmod(script_oFN, stat.S_IRWXU | stat.S_IRWXG | stat.S_IRWXO)  # Historic; needed as sourced by BASH now?
 
-        # Full path specified so do not need to pre-pend './' for Linux; Windows needs BASH command to start .sh files
-        # BASH script file. So no need to parse script content using shlex. We create our own parsed list here
-        command = [wgse.bashx_oFN, "-x", script_oFN]  # if wgse.os_plat == "Windows" else [script_oFN]
+        # Full path specified; Windows needs BASH command to start .sh BASH script file.
+        # No need to parse script content using shlex. We create our own parsed list here.
+        command = [wgse.bashx_oFN, "-x", script_oFN] if wgse.DEBUG_MODE else \
+                  [wgse.bashx_oFN, script_oFN] if wgse.os_plat == "Windows" else \
+                  [script_oFN]
     else:
         command = script_contents   # Already passed as a list; not a multi-line string like above
 
     DEBUG(f'Starting command: {" ".join(command).strip()}')
 
-    if wgse.window and wgse.dnaImage:       # if windowing system created and setup (for outside, command line calls)
-        show_please_wait_window(script_title, parent)
+    # Keepawake on Linux requires elevated (SUDO) privileges. No way to request a drop of elevated.
+    # elevate(show_console=True)  # Request elevated privilages from the user on Linux
+    if wgse.os_plat != "Linux":     # and etime > 3600 and os.getuid() != 0:
+        set_keepawake()
 
-    run_external_program(script_title, command)
+    verbose_title = wgse.lang.i18n.get(script_code, f'unknown: {script_code}')
+    label = verbose_title if len(verbose_title) < 40 else f'{verbose_title[:35]} ...'
+
+    if wgse.window and wgse.dnaImage:       # if windowing system created and setup (for outside, command line calls)
+        show_pleasewait_window(script_code, parent)
+        mainwindow.titleCommandLabel.configure(text=f'{wgse.lang.i18n["Started"]}: {label}')
+        wgse.window.update()
+
+    run_external_program(script_code, command)
 
     if wgse.window and wgse.dnaImage:
+        mainwindow.titleCommandLabel.configure(text=f'{wgse.lang.i18n["Finished"]}: {label}')
+        wgse.window.update()
         finishWait()
+
+    if wgse.os_plat != "Linux":
+        unset_keepawake()
+
+def update_release():
+    """
+    Essentially a kill / exit reoutine as will spawn off the installer, then start the program and die
+    """
+    from mainwindow import _prepare_to_exit, _button_actual_exit
+
+    # Todo need to handle downgrade requests; need to understand if release track was changed
+    # Todo need pop-up when startup and detect out-of-date release (maybe when change track as well?)
+    if not wgse_message("yesno", "warnInDevelTitle", False, "warnInDevel"):
+        return
+
+    # Destroy main window so a PleaseWait will not pop-up; to put focus on commands script window
+    if wgse.window:
+        wgse.window.destroy()
+        wgse.window = None
+
+    _prepare_to_exit()
+
+    # Setup command script to execute Installer and then restart the program
+
+    if wgse.os_plat == "Windows":
+        cmd_arr1 = ["cmd", "/c", f'"{wgse.install_oFP}Install_windows.bat"']
+        cmd_arr2 = ['cmd', '/c', f'"{wgse.install_oFP}WGSExtract.bat"']
+        # subprocess.run(['cmd', '/c', f'start /b {wgse.install_oFP}WGSExtract.bat'])   # If want a new terminal
+
+    elif wgse.os_plat == "Darwin":
+        cmd_arr1 = ["bash", f'"{wgse.install_oFP}Install_windows.command"']
+        cmd_arr2 = ["bash", f'"{wgse.install_oFP}WGSExtract.command"']
+        # subprocess.run(["open", f"{wgse.install_oFP}WGSExtract.command"],             # If want a new terminal
+        #               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    else:
+        cmd_arr1 = ["bash", f'"{wgse.install_FP}Install_windows.sh"']
+        cmd_arr2 = ["bash", f'"{wgse.install_FP}WGSExtract.sh", "noforce"']
+        # subprocess.run(["mintty", f"{wgse.install_FP}WGSExtract.sh", "force"],       # If want a new terminal
+        #               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)           # mintty only in cygwin
+
+    # Should we use mutliprocess and os.fork instead?
+    #  See https://stackoverflow.com/questions/49123439/python-how-to-run-process-in-detached-mode
+    try:
+        subprocess.run(cmd_arr1)
+        subprocess.run(cmd_arr2)
+    except:
+        wgse_message("error", "FailedUpgradeTitle", False, "FailedUpgrade")
+
+    _button_actual_exit()
+

@@ -1,5 +1,11 @@
+#!/usr/bin/env python3
 # coding: utf8
-# Copyright (C) 2022 Randy Harr
+#
+# Counting Reference Model Final Assembly N's (BED, region, etc output files)
+#
+# Part of the WGS Extract (https://wgse.bio/) system (standalone)
+#
+# Copyright (C) 2022-2024 Randy Harr
 #
 # License: GNU General Public License v3 or later
 # A copy of GNU GPL v3 should have been included in this software package in LICENSE.txt.
@@ -8,8 +14,9 @@
 Standalone script to process a reference model FASTA to determine the inclusion of N's in the base pair sequence.
 Reads the compressed FASTA. Takes as a parameter the FASTA file. Also expects and reads in the DICT file determined
 from the FASTA file name -- easier to do one pass if we have the sequence lengths.  Processes all sequences.
-Detailed N segment stats writtem to RefModel.nbin.csv. Key stats per sequence and totals written to RefModel.ncnt.csv .
+Detailed N segment stats writtem to RefModel_nbin.csv. Key stats per sequence and totals written to RefModel_nbuc.csv.
 Also creates nat log bucket counts of number of N's; 1000 buckets per sequence. Per David Vance's display criteria.
+Finally, a variation of the _nbin.csv file is created in BED format as _nreg.bed.
 
 Sequences in a reference model are arbitrarily broken up into short lines of 50-80 characters (base-pairs) each. All
 white space is in-material and to be ignored.  We want to not just count how many N values in a sequence but also
@@ -32,12 +39,11 @@ empty_dict = [ 0, '00000000000000000000000000000000' ]
 NUM_BUCKETS = 1000      # Number of buckets per sequence (seqLN / NUM_BUCKETS == bucksize)
 NRUN_SIZE = 300         # Threshold to record Run of N's data (large vs small); Roughly the insert size
 
-# Ref Model passed in as first parameter. From file.fa.gz, find file.dict and create file.ncnt.csv and file.nbin.csv
+# Ref Model passed in as first parameter. From file.fa.gz, find file.dict and create file_ncnt.csv, _nbin.csv, and _nreg.bed
 fagz_FN = None
-ncnt_FN = None
-nreg_FN = None
-nf = None       # short name for open ncnt_file output for writing (per sequence summaries and buckets)
+nf = None       # short name for open nbuc_file output for writing (per sequence summaries and buckets)
 rf = None       # short name for open nreg_file output for writing (each N region)
+bf = None       # short name for open nbed_file output for writing (bed format of each N region)
 
 # Per Sequence (while processing) values
 seqSN = None    # Extract sequence name; set if in sequence. Otherwise None.
@@ -70,14 +76,28 @@ totalsmlNregs = 0
 skipping = False # if skipping sequence due to unmatching sequence name to SN in DICT file
 
 
+# Copied from utilities.py; but that depends on wgse. which this does not
+def rreplace(pat, sub, string):
+    return string[:-len(pat)] + sub if string.endswith(pat) else string
+
+
+def fasta_base(fasta_file):
+    # Might be lacking .gz extension; so not replacing ".fastq.gz", for example
+    return rreplace(".fasta", "", rreplace(".fna", "", rreplace(".fa", "", rreplace(".gz", "", fasta_file))))
+
+
 def closeFile():
-    global seqSN, totalSN, totalLN, totalNcnt, totalNregs, totalsmlNregs, nf
+    global seqSN, totalSN, totalLN, totalNcnt, totalNregs, totalsmlNregs, nf, rf, bf
 
     if seqSN:
         closeSeq()
+    rf.close()
+    bf.close()
 
     print(f'#TOTALS:', file=nf)
     print(f'{totalSN}\t{totalLN:,}\t{totalNcnt:,}\t{totalNregs}\t\t\t{totalsmlNregs}', file=nf)
+
+    nf.close()
 
 
 def closeSeq():
@@ -172,10 +192,11 @@ def closeNrun():
     seqNcnt += Nruncnt  # Running total of N's for sequence
     buckNcnt += Nruncnt  # Running total of N's for bucket
 
-    # We have found as many as 25% of regions are 1-3 base pairs long.  Most of rest are a multiple of 10K up to
-    # millions long. With a few 50-1,00 scattered in there. Mean and Std Dev get thrown off with the short runs.
-    # So now report and count short and long runs separately. Only calculate Mean and Std Dev on >NRUN_SIZE regions.
-    # NRUN_SIZE should be set insert size of most sequencing tools today.  Longer runs of N cannot be aligned across it.
+    # We have found as many as 25% of N regions are 1-3 base pairs long.  Most of rest are a multiple of 10K up to
+    # >10**6 long. With a few scattered 50-1K runs in there. Mean and Std Dev get thrown off with the short runs.
+    # So we now report and count short and long runs separately. Only calculate Mean and Std Dev on >NRUN_SIZE regions.
+    # NRUN_SIZE should be the insert size of most sequencing tools today.  Longer runs of N cannot be aligned across it.
+    # Nruncnt's, if greater than 10K, tend to be a multiple of 10K (or greater).
     if Nruncnt > NRUN_SIZE:
         seqNregs += 1
         delta = Nruncnt - seqNmean
@@ -184,7 +205,8 @@ def closeNrun():
         seqNM2 += delta * delta2
 
         start = seqBPcnt - Nruncnt
-        print(f'{seqSN}\t{seqNregs}\t{start:,}\t{Nruncnt:,}', file=rf)
+        print(f'{seqSN}\t{seqNregs}\t{start:,}\t{Nruncnt:,}', file=rf)      # like BED but in spreadsheet form
+        print(f'{seqSN}\t{start}\t{start+Nruncnt}', file=bf)            # Actual BED format file
     else:
         smlNregs += 1
 
@@ -214,7 +236,7 @@ def processSeq(linebp):
     Whitespace and newlines are ignored. Big issue if newlines not breaking a multi-million character sequence.
 
     Use regex matching to spead up processing. Must handle run of N's spanning a full line (from start to end)
-    as well as a overlapping a line (start or end) or changing at the line boundary.
+    as well as overlapping a line boundary (start or end) or changing at the line boundary.
 
     Do not have to worry about bucket boundaries.  Those were handled by splitting line at bucket boundary before
     making this call.
@@ -243,7 +265,7 @@ if __name__ == '__main__':
         print(f'Usage: python3 {module} RefModel.fa.gz', file=sys.stderr, flush=True)
         print(f'   RefModel.fasta.gz and RefModel.fna.gz also acceptable', file=sys.stderr, flush=True)
         print(f'   RefModel.dict file must exist. See "samtools dict" for how to create.', file=sys.stderr, flush=True)
-        print(f'   Output written to RefModel.ncnt.csv and RefModel.nbin.csv', file=sys.stderr, flush=True)
+        print(f'   Output written to RefModel_nbuc.csv _nbin.csv, and _nreg.bed', file=sys.stderr, flush=True)
         exit(1)
     fagz_FN = sys.argv[1]                     # Full path, if specified (FN)
     fagz_FBS = os.path.basename(fagz_FN)      # Just FASTQ file name
@@ -251,10 +273,11 @@ if __name__ == '__main__':
           f'{NUM_BUCKETS} buckets per sequence',
           file=sys.stdout, flush=True)
 
-    fagz_FPB  = fagz_FN.replace(".fasta.gz", "").replace(".fna.gz", "").replace(".fa.gz", "")
+    fagz_FPB  = fasta_base(fagz_FN)
     dict_file = fagz_FPB + ".dict"
-    ncnt_file = fagz_FPB + "_ncnt.csv"
+    nbuc_file = fagz_FPB + "_nbuc.csv"
     nreg_file = fagz_FPB + "_nbin.csv"
+    nbed_file = fagz_FPB + "_nreg.bed"
 
     # First read DICT file to get length of each sequence we expect to encounter
     seqdict = {}
@@ -266,15 +289,22 @@ if __name__ == '__main__':
                 seqdict[cols[1][3:]] = [int(cols[2][3:]), cols[3][3:]]
 
     # Dump header of output (stdout) TSV file result
-    nf = open(ncnt_file, "w")
+    nf = open(nbuc_file, "w")
+    print(f'#WGS Extract generated runs of N summary file', file=nf)
     print(f'#Processing Ref Model: {fagz_FBS} with >{NRUN_SIZE}bp runs of N and {NUM_BUCKETS} '
           f'buckets per sequence', file=nf)
     print(f'#Seq\tNumBP\tNumNs\tNumNreg\tNregSizeMean\tNregSizeStdDev\tSmlNreg\tBuckSize\t'
           f'Bucket Sparse List (bp start, ln value) when nonzero', file=nf)
 
     rf = open(nreg_file, "w")
+    print(f'#WGS Extract generated runs of N bin definition file (almost the same as BED)', file=rf)
     print(f'#Processing Ref Model: {fagz_FBS} with >{NRUN_SIZE}bp of N runs', file=rf)
     print(f'#SN\tBinID\tStart\tSize', file=rf)
+
+    bf = open(nbed_file, "w")
+    print(f'#WGS Extract generated runs of N bin BED file', file=bf)
+    print(f'#Processing Ref Model: {fagz_FBS} with >{NRUN_SIZE}bp of N runs', file=bf)
+    print(f'#SN\tStart\tSize', file=bf)
 
     # Now read and process fagz_file (FASTA reference model) for runs of N
     seq = None      # Holds the current SN we are working on

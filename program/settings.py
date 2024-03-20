@@ -1,15 +1,24 @@
 # coding: utf8
+#
+# Main, Global Settings (pseudo Class module)
+#
+# Part of the
+# WGS Extract (https://wgse.bio/) system
+#
 # Copyright (C) 2018-2020 City Farmer
-# Copyright (C) 2020-2022 Randy Harr
+# Copyright (C) 2020-2023 Randy Harr
 #
 # License: GNU General Public License v3 or later
 # A copy of GNU GPL v3 should have been included in this software package in LICENSE.txt.
 
-# __version__ = "Dev ver4n (15 Jul 2022)"  Now captured dynamically from program/program.json
-# manual_url = "https://bit.ly/3JCyZNa"       # Version 4 manual (not publicly released yet)
+# __version__ = "Dev ver5.nn (xx xxx 2023)"  Now captured dynamically from program/program.json
+# manual_url = "https://bit.ly/3nJqxqo"       # Version 5 manual (not publicly released yet) in program.json file also
 
+major_version = 5
 __version__ = None      # Now read in and constructed from the program.json and release.json files
 manual_url = "https://wgsextract.github.io/"        # Default if not explicitely set in the program.json file
+track = "Beta"          # Default release track (Beta)
+
 
 """###################################################################################################################
  General Settings module support for the WGS Extract system
@@ -63,18 +72,19 @@ yHgResult_maxh    = 750
 # Number below based on Randy's 40x, 57GB BAM file on his 2 core, AMD A10-5700 processor using CygWin htslib 1.10
 expected_time = {    # hours[1] * Minutes[1] * Seconds
     'GetBAMHeader':               2,  # ## samtools view -H (less than a second usually)
-    'ButtonAlignBAM':   9 * 60 * 60,  # ## bwa align of FASTQ to BAM
+    'ButtonAlignBAM':   9 * 60 * 60,  # ## bwa align of FASTQ to BAM (160 CPU hours; so 9 for a 16 thread processor)
     'ButtonBAMStats':            15,  # ## samtools idxstats (2 secs if index file there; sometimes a little longer)
     'ButtonBAMNoIndex':     35 * 60,  # ## samtools idxstats (35 min if file not indexed on 30x WGS)
     'ButtonBAMNoSort':      70 * 60,  # ## samtools idxstats (70+ min if file not sorted nor indexed on 30x WGS)
     'ButtonBAMStats2':       3 * 60,  # ## Read first 100,000 lines to get read length, etc
     'ButtonBAMStatsLong':   10 * 60,  # ## Read next 1,900,000 lines to get better read length (ONT is highly variable)
+    'ButtonBAMStats3':      10 * 60,  # ## BaseQ score calc after mpileup
     'GenSortedBAM':         30 * 60,  # ## samtools sort
     'GenBAMIndex':          30 * 60,  # ## samtools index
     'ButtonFastp':          45 * 60,  # ## fastp on fastq
     'ButtonFastqc':         60 * 60,  # ## fastqc on fastq
     'ButtonMicroarrayDNA':   5 * 60,  # ## 1 to 12 aconv() calls; quick
-    'ButtonCombinedKit':    50 * 60,  # ## Samtools mpileup, bcftools call on WGS; an hour or more for single processor
+    'ButtonAllSNPs':        50 * 60,  # ## Samtools mpileup, bcftools call on WGS; an hour or more for single processor
     'ButtonYHaplo':         10 * 60,  # ## yleaf haplo
     'ButtonYHaplo2':         5 * 60,  # ## yleaf lookup
     'ButtonMTHaplo':        20 * 60,  # ## haplogrep (java)
@@ -83,8 +93,7 @@ expected_time = {    # hours[1] * Minutes[1] * Seconds
     'ButtonMitoFASTA':       3 * 60,  # ## ButtonMitoVCF; samtools fasta
     'ButtonMitoBAM':         3 * 60,  # ## samtools view
     'ButtonMitoVCF':         3 * 60,  # ## bcftools mpileup, call
-    'ButtonSNPVCF':        150 * 60,  # ## bcftools mpileup, call for SNP VCF over whole genome
-    'ButtonInDelVCF':      150 * 60,  # ## bcftools mpileup, call for InDels VCF over whole genome
+    'ButtonVCF':           150 * 60,  # ## bcftools mpileup, call for VCF over whole genome (SNP, InDel or both)
     'ButtonYandMT':          3 * 60,  # ## samtools view
     'ButtonYonly':           3 * 60,  # ## samtools view
     'CRAMtoBAM':            90 * 60,  # ## samtools cram to bam (1hr); samtools index (30min)
@@ -121,7 +130,9 @@ valid_chromosomes = ["chr1", "chr2", "chr3", "chr4", "chr5", "chr6", "chr7", "ch
 
 # Currently, we just fork off 25 jobs as if 32 processors.  Can we more smartly manage when less processors?
 # This is a load balance grouping based on the max available processors **2 groups. Stopped using because drops
-# Alt Contigs which are vital for calling variants.
+# Alt Contigs which are vital for calling variants. If had table to identify which alt contigs are attached to
+# which chromosome, then maybe this could work better.  Also, could give a range on chr1 and other large ones
+# to better balance even further.
 parallelBAM = {
     32: ["chr1",  "chr2",  "chr3",  "chr4",  "chr5",  "chr6",  "chr7",  "chr8", "chr9",
          "chr10", "chr11", "chr12", "chr13", "chr14", "chr15", "chr16", "chr17", "chr18", "chr19",
@@ -144,6 +155,7 @@ parallelBAM = {
 # Confirmed no N's in T2T models but minor variances in major builds except 1K hs38 >> 3 mil more.
 # Note: override chrM which actually has 1. Causes breadth of coverage to become 100.01%
 # Todo nadjust for major AND minor class (hs38 has 12 million more N's than the others)
+# Todo change to file read in that is updated by ref library installs
 nadjust = {
     99: {"1": 0, "2": 0, "3": 0, "4": 0, "5": 0, "6": 0, "7": 0,
          "8": 0, "9": 0, "10": 0, "11": 0, "12": 0, "13": 0, "14": 0,
@@ -152,7 +164,11 @@ nadjust = {
     38: {"1": 18475410, "2": 1645301, "3": 195424, "4": 461888, "5": 2555066, "6": 727457, "7": 375842, "8": 370500,
          "9": 16604167, "10": 534460, "11": 552880, "12": 137493, "13": 16381203, "14": 18525617, "15": 17349864,
          "16": 8532402, "17": 337237, "18": 283680, "19": 2851219, "20": 499910, "21": 8671412, "22": 13746488,
-         "X": 1147866, "Y": 33591060, "M": 0},
+         "X": 1147866, "Y": 33591060, "M": 0},  # hs38
+"hg38": {"1": 18475229, "2": 1645291, "3": 195420, "4": 461888, "5": 272881, "6": 727255, "7": 375841, "8": 370500,
+         "9": 16604127, "10": 534287, "11": 552880, "12": 137270, "13": 16381200, "14": 16475569, "15": 17349841,
+         "16": 8532401, "17": 336367, "18": 283627, "19": 176858, "20": 499586, "21": 6621300, "22": 11658691,
+         "X": 1147765, "Y": 30812232, "M": 0},
     37: {"1": 23970000, "2": 4994855, "3": 3225295, "4": 3492600, "5": 3220000, "6": 3720001, "7": 3785000,
          "8": 3475100, "9": 21070000, "10": 4220009, "11": 3877000, "12": 3370502, "13": 19580000, "14": 19060000,
          "15": 20836626, "16": 11470000, "17": 3400000, "18": 3420019, "19": 3320000, "20": 3520000, "21": 13023253,
@@ -164,15 +180,11 @@ nadjust = {
     36: {"1": 22250000, "2": 5241355, "3": 4797002, "4": 3976000, "5": 3155100, "6": 3626001, "7": 3869000,
          "8": 3662000, "9": 20130000, "10": 3750009, "11": 3321631, "12": 2046502, "13": 18583000, "14": 18078000,
          "15": 18997000, "16": 9942502, "17": 974522, "18": 1460998, "19": 8026000, "20": 2930711, "21": 12774217,
-         "22": 14840121, "X": 3855000, "Y": 34789037, "M": 0},
-"hg38": {"1": 18475229, "2": 1645291, "3": 195420, "4": 461888, "5": 272881, "6": 727255, "7": 375841,
-         "8": 370500, "9": 16604127, "10": 534287, "11": 552880, "12": 137270, "13": 16381200, "14": 16475569,
-         "15": 17349841, "16": 8532401, "17": 336367, "18": 283627, "19": 176858, "20": 499586, "21": 6621300,
-         "22": 11658691, "X": 1147765, "Y": 30812232, "M": 0},
+         "22": 14840121, "X": 3855000, "Y": 34789037, "M": 0}
 }
 
 # Stored primary sequence lengths for major builds (guaranteed identical)
-# Todo change to file read in for seed; updated by ref library installs
+# Todo change to file read in that is updated by ref library installs
 seqlen = {
     "ids": [ 36, 37, 38, 99 ],
     "1": [ 247249719, 249250621, 248956422, 248387328 ],
@@ -202,12 +214,13 @@ seqlen = {
     "M": [ ]
 }
 
-# Stored primary Sequence Names for major reference models (non GRCh numeric and UCSC "chr1" style); no versions
+# Stored primary Sequence Names for major reference models; no versions
+# Todo change to file read in when updated by ref library installs
 seqnam = {
-    "ids": ["GRCh", "UCSC", "RefSeq", "GenBank", "T2T CHM13", "T2T HG01243"],
-    "1": ["1", "chr1", "NC_000001", "CM000663", "CP068277", "CM034951"],
-    "2": ["NC_000002", "CM000664", "CP068276", "CM034952"],
-    "3": ["NC_000003", "CM000665", "CP068275", "CM034953"],
+    "ids": ["Num", "Chr", "RefSeq", "GenBank", "GenBank CHM13", "RefSeq CHM13", "GenBank HG01243", "RefSeq HG01243"],
+    "1": ["1", "chr1", "NC_000001", "CM000663", "CP068277", "NC_000001", "CM034951"],
+    "2": ["2", "chr2", "NC_000002", "CM000664", "CP068276", "CM034952"],
+    "3": ["3", "chr3", "NC_000003", "CM000665", "CP068275", "CM034953"],
     "4": [],
     "5": [],
     "6": [],
@@ -233,80 +246,92 @@ seqnam = {
 }
 
 
-# Templates for sequencer ID's used in SN field of BAMs and @seqIDD of FASTQs; see http://bit.ly/2TfoAP2
-# relying on "ordered Dict" (Python 3.7 and later). HWI- prefix appears to be for Solexa original Genome Analyzer series
-# Order similar entries from more specific to more general.
+# Templates for sequencer ID's used in the SN field of BAMs and @seqID of FASTQs; see http://bit.ly/2TfoAP2
+# Relying on "ordered Dict" (Python 3.7 and later); Order similar entries from more specific to more general.
+# HWI- prefix appears to be for Solexa original Genome Analyzer series
+# The BGI lab deliver "E" and "FP" names in the same CRAM file (indicating a mix of sequencers)
+#   Hence now using a common samtools markdup regex for all MGI T7 and T10 sequencers
+# A noncapturing group does not seem to work with the samtools markdup ERE: e.g. ((?:FP|E)[0-9]{9}...)
+#   See https://www.rexegg.com/regex-quickstart.html for what should be acceptable
+# Wanted re.compile for the raw strings but import re not possible as this file is globally imported
 valid_markdup = ("Illumina", "Solexa", "MGI DNB")
-sequencers = {      # Wanted re.compile for the raw strings but import re not possible as this file is globally imported
-    # SeqID key :    [RegEx for seqID in FASTQ or QNAME in BAM , RegEx for fields in markdup, order for markdup]
-    'Illumina NS 6000 (Dante)':  [r"^(A0[01][29][126][056]):(\d+):([a-zA-Z0-9]{9}):(\d):(\d+):(\d+):(\d+)$",
-                                  r":([0-9]+:[a-zA-Z0-9]{9}:[0-9]:[0-9]+):([0-9]+):([0-9]+)", "txy"],
-    #    Serial #'s 910, 925 and 966 from Jul 2020- ; added 1245 in Fall 2022
-    'Illumina NS 6000 (FTDNA)':  [r"^(A00186):(\d+):([a-zA-Z0-9]{9}):(\d):(\d+):(\d+):(\d+)$",
-                                  r":([0-9]+:[a-zA-Z0-9]{9}:[0-9]:[0-9]+):([0-9]+):([0-9]+)", "txy"],
-    'Illumina NS 6000 (GeneDX)': [r"^(A00571):(\d+):([a-zA-Z0-9]{9}):(\d):(\d+):(\d+):(\d+)$",
-                                  r":([0-9]+:[a-zA-Z0-9]{9}:[0-9]:[0-9]+):([0-9]+):([0-9]+)", "txy"],
-    'Illumina NS 6000 (Illum)':  [r"^(A00582):(\d+):([a-zA-Z0-9]{9}):(\d):(\d+):(\d+):(\d+)$",
-                                  r":([0-9]+:[a-zA-Z0-9]{9}:[0-9]:[0-9]+):([0-9]+):([0-9]+)", "txy"],
-    'Illumina Novaseq 6000':     [r"^(M_)?(A\d{5}):(\d+):([a-zA-Z0-9]{9}):(\d):(\d+):(\d+):(\d+)$",
-                                  r":([0-9]+:[a-zA-Z0-9]{9}:[0-9]:[0-9]+):([0-9]+):([0-9]+)", "txy"],
-    'Illumina NextSeq 500/550':  [r"^(N[BS]\d{6}):(\d+):([a-zA-Z0-9]{9}):(\d):(\d+):(\d+):(\d+)$",
-                                  r":([0-9]+:[a-zA-Z0-9]{9}:[0-9]:[0-9]+):([0-9]+):([0-9]+)", "txy"],
-    'Illumina NextSeq 2000':     [r"^(V\d{5}):(\d+):([a-zA-Z0-9]{9}):(\d):(\d+):(\d+):(\d+)$",
-                                  r":([0-9]+:[a-zA-Z0-9]{9}:[0-9]):[0-9]+:([0-9]+):([0-9]+)", "txy"],
-    'Solexa GAI (HiSeq 1000)':   [r"^(HWI-C\d{3,5}):(\d+):([a-zA-Z0-9]{9}):(\d):(\d+):(\d+):(\d+)$",
-                                  r":([0-9]+:[a-zA-Z0-9]{9}:[0-9]):[0-9]+:([0-9]+):([0-9]+)", "txy"],
-    'Illumina HiSeq 1000':       [r"^(C\d{3,5}):(\d+):([a-zA-Z0-9]{9}):(\d):(\d+):(\d+):(\d+)$",
-                                  r":([0-9]+:[a-zA-Z0-9]{9}:[0-9]:[0-9]+):([0-9]+):([0-9]+)", "txy"],
-    'Solexa GAII (HiSeq 2000)':  [r"^(HWI-ST\d{3,5}):(\d+):([a-zA-Z0-9]{9}):(\d):(\d+):(\d+):(\d+)$",
-                                  r":([0-9]+:[a-zA-Z0-9]{9}:[0-9]):[0-9]+:([0-9]+):([0-9]+)", "txy"],
-    'Solexa GAII (HiSeq 2500)':  [r"^(HWI-D\d{3,5}):(\d+):([a-zA-Z0-9]{9}):(\d):(\d+):(\d+):(\d+)$",
-                                  r":([0-9]+:[a-zA-Z0-9]{9}:[0-9]):[0-9]+:([0-9]+):([0-9]+)", "txy"],
-    'Illumina HiSeq 2500':       [r"^(D\d{3,5}):(\d+):([a-zA-Z0-9]{9}):(\d):(\d+):(\d+):(\d+)$",
-                                  r":([0-9]+:[a-zA-Z0-9]{9}:[0-9]:[0-9]+):([0-9]+):([0-9]+)", "txy"],
-    'Solexa GAIIx (HiSeq 3000)': [r"^(HWI-J\d{3,5}):(\d+):([a-zA-Z0-9]{9}):(\d):(\d+):(\d+):(\d+)$",
-                                  r":([0-9]+:[a-zA-Z0-9]{9}:[0-9]):[0-9]+:([0-9]+):([0-9]+)", "txy"],
-    'Illumina HiSeq 3000':       [r"^(J\d{3,5}):(\d+):([a-zA-Z0-9]{9}):(\d):(\d+):(\d+):(\d+)$",
-                                  r":([0-9]+:[a-zA-Z0-9]{9}:[0-9]):[0-9]+:([0-9]+):([0-9]+)", "txy"],
-    'Illumina HiSeq 4000':       [r"^(K\d{3,5}):(\d+):([a-zA-Z0-9]{9}):(\d):(\d+):(\d+):(\d+)$",
-                                  r":([0-9]+:[a-zA-Z0-9]{9}:[0-9]):[0-9]+:([0-9]+):([0-9]+)", "txy"],
-    'Solexa GAxx? (FTDNA)':      [r"^(SN\d{6,8}):(\d+):([a-zA-Z0-9]{9}):(\d):(\d+):(\d+):(\d+)",
-                                  r":([0-9]+:[a-zA-Z0-9]{9}:[0-9]:[0-9]+):([0-9]+):([0-9]+)", "txy"],
-    'Illumina HiSeq X':          [r"^(ST[-_])?(E\d{3,5}):(\d+):([a-zA-Z0-9]{9}):(\d):(\d+):(\d+):(\d+)$",
-                                  r":([0-9]+:[a-zA-Z0-9]{9}:[0-9]):[0-9]+:([0-9]+):([0-9]+)", "txy"],
-    'Illumina MiniSeq':          [r"^(MN\d{3,5}):(\d+):([a-zA-Z0-9]{9}):(\d):(\d+):(\d+):(\d+)$",
-                                  r":([0-9]+:[a-zA-Z0-9]{9}:[0-9]):[0-9]+:([0-9]+):([0-9]+)", "txy"],
-    'Solexa GA (MiSeq)':         [r"^(HWI-M\d{3,5}):(\d+):([a-zA-Z0-9]{9}):(\d):(\d+):(\d+):(\d+)$",
-                                  r":([0-9]+:[a-zA-Z0-9]{9}:[0-9]):[0-9]+:([0-9]+):([0-9]+)", "txy"],
-    'Illumina MiSeq':            [r"^(M\d{3,5}):(\d+):([a-zA-Z0-9]{9}):(\d):(\d+):(\d+):(\d+)$",
-                                  r":([0-9]+:[a-zA-Z0-9]{9}:[0-9]):[0-9]+:([0-9]+):([0-9]+)", "txy"],
+sequencers = {
+    # SeqID key :    [Python RegEx for seqID in FASTQ or QNAME in BAM , RegEx for markdup, order of groups for markdup]
+    'Illumina NS 6000 (Dante)':   [r"^(A00910|A00925|A00966|A01245):(\d+):([a-zA-Z0-9]{9}):(\d):(\d+):(\d+):(\d+)$",
+                                   r":([0-9]+:[a-zA-Z0-9]{9}:[0-9]:[0-9]+):([0-9]+):([0-9]+)", "txy"],
+    #    Serial #'s 0910, 0925 and 966 from Jul 2020- ; added 1245 in Fall 2022
+    'Illumina NS 6000 (FTDNA)':   [r"^(A00186):(\d+):([a-zA-Z0-9]{9}):(\d):(\d+):(\d+):(\d+)$",
+                                   r":([0-9]+:[a-zA-Z0-9]{9}:[0-9]:[0-9]+):([0-9]+):([0-9]+)", "txy"],
+    'Illumina NS 6000 (GeneDX)':  [r"^(A00571):(\d+):([a-zA-Z0-9]{9}):(\d):(\d+):(\d+):(\d+)$",
+                                   r":([0-9]+:[a-zA-Z0-9]{9}:[0-9]:[0-9]+):([0-9]+):([0-9]+)", "txy"],
+    'Illumina NS 6000 (Illum)':   [r"^(A00582):(\d+):([a-zA-Z0-9]{9}):(\d):(\d+):(\d+):(\d+)$",
+                                   r":([0-9]+:[a-zA-Z0-9]{9}:[0-9]:[0-9]+):([0-9]+):([0-9]+)", "txy"],
+    'Illumina Novaseq 6000':      [r"^(M_)?(A\d{5}):(\d+):([a-zA-Z0-9]{9}):(\d):(\d+):(\d+):(\d+)$",
+                                   r":([0-9]+:[a-zA-Z0-9]{9}:[0-9]:[0-9]+):([0-9]+):([0-9]+)", "txy"],
+    'Illumina NextSeq 500/550':   [r"^(N[BS]\d{6}):(\d+):([a-zA-Z0-9]{9}):(\d):(\d+):(\d+):(\d+)$",
+                                   r":([0-9]+:[a-zA-Z0-9]{9}:[0-9]:[0-9]+):([0-9]+):([0-9]+)", "txy"],
+    'Illumina NextSeq 2000':      [r"^(V\d{5}):(\d+):([a-zA-Z0-9]{9}):(\d):(\d+):(\d+):(\d+)$",
+                                   r":([0-9]+:[a-zA-Z0-9]{9}:[0-9]):[0-9]+:([0-9]+):([0-9]+)", "txy"],
+    'Solexa GAI (HiSeq 1000)':    [r"^(HWI-C\d{3,5}):(\d+):([a-zA-Z0-9]{9}):(\d):(\d+):(\d+):(\d+)$",
+                                   r":([0-9]+:[a-zA-Z0-9]{9}:[0-9]):[0-9]+:([0-9]+):([0-9]+)", "txy"],
+    'Illumina HiSeq 1000':        [r"^(C\d{3,5}):(\d+):([a-zA-Z0-9]{9}):(\d):(\d+):(\d+):(\d+)$",
+                                   r":([0-9]+:[a-zA-Z0-9]{9}:[0-9]:[0-9]+):([0-9]+):([0-9]+)", "txy"],
+    'Solexa GAII (HiSeq 2000)':   [r"^(HWI-ST\d{3,5}):(\d+):([a-zA-Z0-9]{9}):(\d):(\d+):(\d+):(\d+)$",
+                                   r":([0-9]+:[a-zA-Z0-9]{9}:[0-9]):[0-9]+:([0-9]+):([0-9]+)", "txy"],
+    'Solexa GAII (HiSeq 2500)':   [r"^(HWI-D\d{3,5}):(\d+):([a-zA-Z0-9]{9}):(\d):(\d+):(\d+):(\d+)$",
+                                   r":([0-9]+:[a-zA-Z0-9]{9}:[0-9]):[0-9]+:([0-9]+):([0-9]+)", "txy"],
+    'Illumina HiSeq 2500':        [r"^(D\d{3,5}):(\d+):([a-zA-Z0-9]{9}):(\d):(\d+):(\d+):(\d+)$",
+                                   r":([0-9]+:[a-zA-Z0-9]{9}:[0-9]:[0-9]+):([0-9]+):([0-9]+)", "txy"],
+    'Solexa GAIIx (HiSeq 3000)':  [r"^(HWI-J\d{3,5}):(\d+):([a-zA-Z0-9]{9}):(\d):(\d+):(\d+):(\d+)$",
+                                   r":([0-9]+:[a-zA-Z0-9]{9}:[0-9]):[0-9]+:([0-9]+):([0-9]+)", "txy"],
+    'Illumina HiSeq 3000':        [r"^(J\d{3,5}):(\d+):([a-zA-Z0-9]{9}):(\d):(\d+):(\d+):(\d+)$",
+                                   r":([0-9]+:[a-zA-Z0-9]{9}:[0-9]):[0-9]+:([0-9]+):([0-9]+)", "txy"],
+    'Illumina HiSeq 4000':        [r"^(F_)?(K\d{3,5}):(\d+):([a-zA-Z0-9]{9}):(\d):(\d+):(\d+):(\d+)$",
+                                   r":([0-9]+:[a-zA-Z0-9]{9}:[0-9]):[0-9]+:([0-9]+):([0-9]+)", "txy"],
+    'Solexa GAxx? (FTDNA)':       [r"^(SN\d{6,8}):(\d+):([a-zA-Z0-9]{9}):(\d):(\d+):(\d+):(\d+)",
+                                   r":([0-9]+:[a-zA-Z0-9]{9}:[0-9]:[0-9]+):([0-9]+):([0-9]+)", "txy"],
+    'Illumina HiSeq X':           [r"^(ST[-_])?(E\d{3,5}):(\d+):([a-zA-Z0-9]{9}):(\d):(\d+):(\d+):(\d+)$",
+                                   r":([0-9]+:[a-zA-Z0-9]{9}:[0-9]):[0-9]+:([0-9]+):([0-9]+)", "txy"],
+    'Illumina MiniSeq':           [r"^(MN\d{3,5}):(\d+):([a-zA-Z0-9]{9}):(\d):(\d+):(\d+):(\d+)$",
+                                   r":([0-9]+:[a-zA-Z0-9]{9}:[0-9]):[0-9]+:([0-9]+):([0-9]+)", "txy"],
+    'Solexa GA (MiSeq)':          [r"^(HWI-M\d{3,5}):(\d+):([a-zA-Z0-9]{9}):(\d):(\d+):(\d+):(\d+)$",
+                                   r":([0-9]+:[a-zA-Z0-9]{9}:[0-9]):[0-9]+:([0-9]+):([0-9]+)", "txy"],
+    'Illumina MiSeq':             [r"^(M\d{3,5}):(\d+):([a-zA-Z0-9]{9}):(\d):(\d+):(\d+):(\d+)$",
+                                   r":([0-9]+:[a-zA-Z0-9]{9}:[0-9]):[0-9]+:([0-9]+):([0-9]+)", "txy"],
     'MGI DNB T7 (ProPhase)':      [r"^(PRO\d{7})(_[A-Za-z0-9_]{25,29}_)(E100\d{6})(L\d)(C\d{3})(R\d{3})(\d{6,8})([/1]?|[/2]?)$",
-                                   r"E100([0-9]{6}L[0-9])C([0-9]{3})R([0-9]{3})", "txy"],
+                                   r"([FE][P]?[0-9]{9}L[0-9])(C[0-9]{3})(R[0-9]{3})", "txy"],
     'MGI DNB T7 (ProPhase-bug)':  [r"^(<NEBULA_ID>)(_[A-Za-z0-9_]{25,29}_)(E100\d{6})(L\d)(C\d{3})(R\d{3})(\d{6,8})([/1]?|[/2]?)$",
-                                   r"E100([0-9]{6}L[0-9])C([0-9]{3})R([0-9]{3})", "txy"],
-    'MGI DNB T7 (ProPhase 2)':    [r"^(N[A-Z0-9]{9}_[0-9_]{17}_ProPhase_BP_)(E100\d{6})(L\d)(C\d{3})(R\d{3})(\d{6,8})([/1]?|[/2]?)$",
-                                   r"E100([0-9]{6}L[0-9])C([0-9]{3})R([0-9]{3})", "txy"],
-    'MGI DNB T7':                 [r"^(E100\d{6})(L\d)(C\d{3})(R\d{3})(\d{6,8})([/1]?|[/2]?)$",
-                                   r"E100([0-9]{6}L[0-9])C([0-9]{3})R([0-9]{3})", "txy"],
+                                   r"([FE][P]?[0-9]{9}L[0-9])(C[0-9]{3})(R[0-9]{3})", "txy"],
+    'MGI DNB T7 (ProPhase 2)':    [r"^(NG[A-Z0-9]{8}_[0-9_]{17}_ProPhase_BP_)(E[12]00\d{6})(L\d)(C\d{3})(R\d{3})(\d{6,8})([/1]?|[/2]?)$",
+                                   r"([FE][P]?[0-9]{9}L[0-9])(C[0-9]{3})(R[0-9]{3})", "txy"],
+    'MGI DNB T7 (Dante, 6xxx)':   [r"^(E200006\d{3})(L\d)(C\d{3})(R\d{3})(\d{6,8})([/1]?|[/2]?)$",
+                                   r"E([0-9]{9}L[0-9])C([0-9]{3})R([0-9]{3})", "txy"],
+    'MGI DNB T7':                 [r"^(E[12]00\d{6})(L\d)(C\d{3})(R\d{3})(\d{6,8})([/1]?|[/2]?)$",
+                                   r"([FE][P]?[0-9]{9}L[0-9])(C[0-9]{3})(R[0-9]{3})", "txy"],
     'MGI DNB T10 (ProPhase)':     [r"^(PRO\d{7})(_[A-Za-z0-9_]{25,29}_)(FP200\d{6})(L\d)(C\d{3})(R\d{3})(\d{6,8})([/1]?|[/2]?)$",
-                                   r"FP200([0-9]{6}L[0-9])C([0-9]{3})R([0-9]{3})", "txy"],
+                                   r"FP2([0-9]{8}L[0-9])C([0-9]{3})R([0-9]{3})", "txy"],
     # PRO0001117_2022_10_07_688579_ProPhase_BP_FP200006640L1C041R06000486480
     'MGI DNB T10 (ProPhase-bug)': [r"^(<NEBULA_ID>)(_[A-Za-z0-9_]{25,29}_)(FP200\d{6})(L\d)(C\d{3})(R\d{3})(\d{6,8})([/1]?|[/2]?)$",
-                                   r"FP200([0-9]{6}L[0-9])C([0-9]{3})R([0-9]{3})", "txy"],
+                                   r"FP2([0-9]{8}L[0-9])C([0-9]{3})R([0-9]{3})", "txy"],
     # <NEBULA_ID>_2022_12_10_688579_ProPhase_BP_FP200006640L1C041R06000486480
-    'MGI DNB T10 (ProPhase 2)':   [r"^(N[A-Z0-9]{9}_[0-9_]{17}_ProPhase_BP_)(FP200\d{6})(L\d)(C\d{3})(R\d{3})(\d{6,8})([/1]?|[/2]?)$",
-                                   r"FP200([0-9]{6}L[0-9])C([0-9]{3})R([0-9]{3})", "txy"],
+    'MGI DNB T10 (ProPhase 2)':   [r"^(N[A-Z0-9]{9}_[0-9_]{17}_ProPhase_BP_)(FP2[07]0\d{6})(L\d)(C\d{3})(R\d{3})(\d{6,8})([/1]?|[/2]?)$",
+                                   r"FP2([0-9]{8}L[0-9])C([0-9]{3})R([0-9]{3})", "txy"],
     # NG1MU9RJA2_2023_04_06_093100_ProPhase_BP_FP200009330L1C086R02600469793   (?:/[12])?
-    'MGI DNB T10':                [r"^(FP200\d{6})(L\d)(C\d{3})(R\d{3})(\d{6,8})([/1]?|[/2]?)$",
-                                   r"FP200([0-9]{6}L[0-9])C([0-9]{3})R([0-9]{3})", "txy"],    'MGI DNB G400':              [r"^(V3[05]0\d{6})(L\d)(C\d{3})(R\d{3})(\d{6,8})([/1]?|[/2]?)$",
-                                  r"V3[05]0([0-9]{6}L[0-9])C([0-9]{3})R([0-9]{3})", "txy"],
-    'MGI DNB G400 FAST':         [r"^([CV]L?100\d{6})(L\d)(C\d{3})(R\d{3})_?(\d{6,8})([/1]?|[/2]?)$",
-                                  r"[CV]L?100([0-9]{6}L[0-9])C([0-9]{3})R([0-9]{3})", "txy"],
-    "MGI DNB G400 (ySeq)":       [r"^(YSEQ1):(\d+):([A-Z0-9]{10,12}):(\d):(\d{5,7}):(\d{3}):(\d{3})$",
-                                  r"YSEQ1:[0-9]+:([A-Z0-9]{10,12}:[0-9]):[0-9]{6}:([0-9]{3}):([0-9]{3})", "txy"],
-    'PacBio HiFi Revio':         [r"^(m\d{5})_(\d{6})_(\d{6})(_s\d+)?/(\d{9})/ccs", r"", ""],  # Early R&D models missing s_n
-    'Oxford Nanopore':           [r"^([0-9a-f]{8})-([0-9a-f]{4})-([0-9a-f]{4})-([0-9a-f]{4})-([0-9a-f]{12})$", r"", ""],
-    'Unknown':                   [r"^[\S]+$", r"", ""]
+    'MGI DNB T10 (ySeq Riga)':    [r"^(FP270\d{6})(L\d)(C\d{3})(R\d{3})(\d{6,8})([/1]?|[/2]?)$",
+                                   r"FP2([0-9]{8}L[0-9])C([0-9]{3})R([0-9]{3})", "txy"],
+    'MGI DNB T10':                [r"^(FP2[07]]0\d{6})(L\d)(C\d{3})(R\d{3})(\d{6,8})([/1]?|[/2]?)$",
+                                   r"FP2([0-9]{8}L[0-9])C([0-9]{3})R([0-9]{3})", "txy"],
+    'MGI DNB G400':               [r"^(V3[05]0\d{6})(L\d)(C\d{3})(R\d{3})(\d{6,8})([/1]?|[/2]?)$",
+                                   r"V3[05]0([0-9]{6}L[0-9])C([0-9]{3})R([0-9]{3})", "txy"],
+    'MGI DNB G400 FAST':          [r"^([CV]L?100\d{6})(L\d)(C\d{3})(R\d{3})_?(\d{6,8})([/1]?|[/2]?)$",
+                                   r"[CV]L?100([0-9]{6}L[0-9])C([0-9]{3})R([0-9]{3})", "txy"],
+    "MGI DNB G400 (ySeq)":        [r"^(YSEQ1):(\d+):([A-Z0-9]{10,12}):(\d):(\d{5,7}):(\d{3}):(\d{3})$",
+                                   r"YSEQ1:[0-9]+:([A-Z0-9]{10,12}:[0-9]):[0-9]{6}:([0-9]{3}):([0-9]{3})", "txy"],
+    'PacBio HiFi Revio':          [r"^(m\d{5}e?)_(\d{6})_(\d{6})(_s\d+)?/(\d{8,9})/ccs",
+                                   r"", ""],  # Early R&D models missing s_n
+    'Oxford Nanopore':            [r"^([0-9a-f]{8})-([0-9a-f]{4})-([0-9a-f]{4})-([0-9a-f]{4})-([0-9a-f]{12})$",
+                                   r"", ""],
+    'Unknown':                    [r"^[\S]+$", r"", ""]
 }
 
 
@@ -321,6 +346,7 @@ sequencers = {      # Wanted re.compile for the raw strings but import re not po
 DEBUG_MODE    = None  # Global DEBUG mode setting (similar to __debug__ removed by python -O)
 wsl_bwa_patch = None  # To bypass Win10 BWA which is single processorlanguage
 prefserver    = None  # Special as saved in settings with many of the above
+gui           = None  # To determine if interactive or not; sets wgse.window if gui, sets wgse.dnaimage when window open
 
 # Class object instantiation points
 outdir = None  # Output Directory subsystem
@@ -329,11 +355,12 @@ tempf  = None  # TemporaryFile subsystem (user override of default location poss
 lang   = None  # Internationalization Language subsystem (fixed location)
 window = None  # main Tk() window (fixed once created unless language change asked)
 BAM    = None  # main BAM Class instance with all its stats, attributes, etc
+VCFs   = None  # main VCF Class instance with one or more VCFs defined
 fonts  = None  # Main Class instance for font faces and sizes used in UI
 
 style = None   # Placeholder for ttk frame style set later
 
-# OS / HW Platform specific variables
+# OS / HW Platform specific variables (note: disk free space captured in the Class instances for OutDir and Tempf)
 os_plat     = None   # type: [str]  # OS Platform; to avoid multiple calls to system.platform
 os_arch     = None   # type: [str]  # OS CPU architecture (x86_64 / AMD64, arm64 for Apple M1)
 os_slash    = None   # type: [str]  # OS Platform file path slash (forward or backward)
@@ -356,10 +383,10 @@ wgseset_oFN  = None  # type: [str]  # File name for global settings
 wslbwa_oFN   = None  # type: [str]  # File name for WSL BWA Patch toggle
 
 # Key paths all determined from where this settings file is located.
-install_FP   = None  # type: [str]  # Installation path for WGS Extract; program/ below is where this file is
-install_oFP  = None  # type: [str]  # Installation path for WGS Extract; program/ below is where this file is
-prog_oFP     = None  # type: [str]  # File path of this Python file (location of WGS Extract program)
-prog_FP      = None  # type: [str]  # File path of this Python file (location of WGS Extract program)
+install_FP   = None  # type: [str]  # Installation path for WGS Extract; program/ below this install has this file
+install_oFP  = None  # type: [str]  # Installation path for WGS Extract; program/ below this install has this file
+prog_FP      = None  # type: [str]  # File path of this Python file (location of this file)
+prog_oFP     = None  # type: [str]  # File path of this Python file (location of this file)
 language_oFN = None  # type: [str]  # File path and name of Internationalization language settings
 image_oFP    = None  # type: [str]  # Icon image in program header file pointer
 dnaImage     = None  #              # Placeholder for banner image (used in MainWindow; needs global variable)
@@ -402,7 +429,10 @@ wcx_qFN       = None    # type: [str]  # Unix wc (word count) command; used wc -
 sedx_qFN      = None    # type: [str]  # Unix sed command
 zipx_qFN      = None    # type: [str]  # Unix zip command
 unzipx_qFN    = None    # type: [str]  # Unix unzip command
-mv_qFN        = None    # type: [str]  # Unix mv (move) command
+mvx_qFN       = None    # type: [str]  # Unix mv (move) command
+cutx_qFN      = None    # type: [str]  # Unix cut command
+uniqx_qFN     = None    # type: [str]  # Unix uniq command
+prx_qFN       = None    # type: [str]  # Unix pr command
 
 samtools_oFP  = None    # type: [str]  # Installation path to HTSLib Bioinformatic tools (samtools, bcftools, etc)
 samtools_FP   = None    # type: [str]  # Installation path to HTSLib Bioinformatic tools (samtools, bcftools, etc)
@@ -420,6 +450,7 @@ samtools_version = [0, 0, 0]   # samtools major / minor version
 cp_version = [0, 0, 0]         # return value of command_processor.is_command_available() (simpler as global)
 
 defbut_bg     = None    # type: [str]  # Default button background color for this run (can change if OS in darkmode)
+deflab_fg     = None    # type: [str]  # Default label text color
 
 # Todo make table of all external execs needed (i.e. a registry) with name, status if available, version, etc.
 #   fill table at start; then check JIT when needed for availability (no error till needed).  That way,
@@ -432,10 +463,10 @@ defbut_bg     = None    # type: [str]  # Default button background color for thi
 #
 
 
-def init(gui=False):
+def init(interactive=False):
     """
     Main routine, like a Class init, to initialize all the global variables. We do local imports here as this
-    module / file is imported everywhere and there are conflicts otherwise.
+    module / file is imported everywhere and there are loop conflicts otherwise.
     """
     import os  # os.path, etc
     import psutil   # cpu_count, virtual_memory().available
@@ -444,15 +475,15 @@ def init(gui=False):
     # import multiprocessing
 
     # Local imports as this module / file is imported everywhere else; no .h/,c separation like in C
-    from utilities import DEBUG, universalOS, unquote  # , wgse_message
+    from utilities import DEBUG, universalOS, unquote, load_wgse_version
     from utilities import TemporaryFiles, LanguageStrings, OutputDirectory, FontTypes       # subsystem classes
     from commandprocessor import is_command_available, simple_command
     from referencelibrary import ReferenceLibrary           # subsystem class
     from mainwindow import mainwindow_init
 
     # Globals we want to access from in here
-    global DEBUG_MODE, wsl_bwa_patch, prefserver                # Some universal settings
-    global tempf, lang, outdir, reflib, window, BAM, fonts      # Some universal class imstamces
+    global DEBUG_MODE, wsl_bwa_patch, prefserver, gui                   # Some universal settings
+    global tempf, lang, outdir, reflib, window, BAM, VCFs, fonts        # Some universal class imstamces
     global os_plat, os_arch, os_threads, os_totmem, os_mem, os_pid, os_threads_proc, os_totmem_proc
     global os_slash, os_batch_FS
     global User_oFP, debugset_oFN, wgseset_oFN, wslbwa_oFN  # , langset_oFN
@@ -462,10 +493,12 @@ def init(gui=False):
     global java8x_FN, java8args, java8x_FNp, java17x_FN, java17args, java17x_FNp
     global jartools_FP, haplogrepx_FN, picardx_FN, gatk3x_FN, gatk4x_FN, igvx_FN, varqcx_FN
     global bashx_oFN, headx_qFN, tailx_qFN, awkx_qFN, grepx_qFN, sortx_qFN
-    global catx_qFN, zcatx_qFN, wcx_qFN, sedx_qFN, zipx_qFN, unzipx_qFN, mv_qFN
+    global catx_qFN, zcatx_qFN, wcx_qFN, sedx_qFN, zipx_qFN, unzipx_qFN, mvx_qFN, cutx_qFN, uniqx_qFN, prx_qFN
     global samtools_oFP, samtools_FP, samtoolsx_qFN, bcftoolsx_qFN, tabixx_qFN, bgzipx_qFN, bwax_qFN, bwamem2x_qFN
     global minimap2x_qFN, fastqcx_qFN, fastpx_qFN
     global java8_version, java17_version, python_version, samtools_version, cp_version
+
+    gui = interactive
 
     #
     # OS / current host platform Specific values
@@ -491,10 +524,7 @@ def init(gui=False):
 
     os_totmem_proc = os_totmem
 
-    set_mem_per_thread_millions(os_totmem, os_threads)      # Sets global os_mem internal to call
-
-    # Todo gather and update free disk space on temp and outputdir; do not start command if not enough left
-    #  See https://psutil.readthedocs.io/en/latest/ for additional info (e.g. psutil.disk_usage(path)['free'])
+    os_mem = set_mem_per_thread_millions(os_totmem, os_threads)     # Note: a string usable in a command line
 
     #
     # Stored settings set per user / run
@@ -517,7 +547,6 @@ def init(gui=False):
     if os.path.exists(wslbwaset_oFN) and os.path.isfile(wslbwaset_oFN):
         wsl_bwa_patch = True
         DEBUG("***** WSL BWA Patch Mode Turned On *****") if gui else ''
-
 
     # Need to set default locale; for decimal number (:n) formatting;
     #   override to POSIX when needed for consistent sort order (BAM header signature)
@@ -544,10 +573,10 @@ def init(gui=False):
     # Some key static files we need to read in and use
     image_oFP = f"{prog_oFP}img{os_slash}dna.png"
     icon_oFP  = f"{prog_oFP}img{os_slash}favicon.ico"
-    language_oFN = f'{prog_oFP}language.xlsx'  # Moved from subdir of files in v2 to single file here; .txt to .csv
+    language_oFN = f'{prog_oFP}language.xlsx'  # Moved from subdir of files in v2 to single file here; .txt to .xlsx
 
-    # aconv_FN = f'{prog_FP}aconv.py'                   # Static inside microarray.py
-    # hg39tohg19 = f'{prog_fp}hg38tohg19.py'            # Static inside microarray.py
+    # aconv_FN = f'{prog_FP}aconv.py'                   # Static inside microwindow.py
+    # hg39tohg19 = f'{prog_fp}hg38tohg19.py'            # Static inside microwindow.py
 
     # Find program installation by assuming this file is in a program/ folder below the installation root
     install_FP  = prog_FP.split('program')[0]  # Has trailing os_slash
@@ -557,7 +586,7 @@ def init(gui=False):
     reflib_oFN = f'{install_FP}reference/'      # Default installation location
     # Microarray templates now in reflib and set after initializing reference library; in case was moved in settings
 
-    load_program_version()  # Create program version string and get user manual URL from json files (needs install_oFP)
+    load_wgse_version()  # Create program version string and get user manual URL from json files (needs install_oFP)
     DEBUG(f'WGS Extract: {__version__}')
 
     prefserver = "NIH"      # Default value; otherwise "EBI"
@@ -589,6 +618,7 @@ def init(gui=False):
 
         cygwin64_oFP = f'{install_oFP}cygwin64\\bin\\'
         cygwin64_FP  = f'{install_FP}cygwin64/bin/'
+        mingw64_FP   = f'{install_FP}cygwin64/usr/local/mingw64.bin/'
         samtools_oFP = f'{install_oFP}cygwin64\\usr\\local\\bin\\'
         samtools_FP  = f'{install_FP}cygwin64/usr/local/bin/'
 
@@ -604,7 +634,10 @@ def init(gui=False):
         sedx_qFN  = f'"{cygwin64_FP}sed.exe"'       # Only in microarray
         zipx_qFN  = f'"{cygwin64_FP}zip.exe"'       # Only in microarray
         unzipx_qFN = f'"{cygwin64_FP}unzip.exe"'     # Only in microarray
-        mv_qFN    = f'"{cygwin64_FP}mv.exe"'
+        mvx_qFN    = f'"{cygwin64_FP}mv.exe"'
+        cutx_qFN   = f'"{cygwin64_FP}cut.exe"'
+        uniqx_qFN  = f'"{cygwin64_FP}uniq.exe"'
+        prx_qFN     = f'"{cygwin64_FP}pr.exe"'
 
         samtoolsx_qFN = f'"{samtools_FP}samtools.exe"'
         bcftoolsx_qFN = f'"{samtools_FP}bcftools.exe"'
@@ -613,7 +646,7 @@ def init(gui=False):
         bwax_qFN      = f'"{samtools_FP}bwa.exe"'
         bwamem2x_qFN  = f'"{samtools_FP}bwamem2.exe"'
         minimap2x_qFN = f'"{samtools_FP}minimap2.exe"'
-        fastpx_qFN    = f'"{samtools_FP}fastp.exe"'
+        fastpx_qFN    = f'"{mingw64_FP}fastp.exe"'
         fastqcx_qFN   = f'"{install_FP}FastQC/FastQC.jar"'
 
         jre8 = f'{install_FP}jre8/bin/java'     # If Win10 installer had to install, then local to WGSE
@@ -644,7 +677,10 @@ def init(gui=False):
         sedx_qFN  = '"sed"'
         zipx_qFN  = '"zip"'
         unzipx_qFN = '"unzip"'
-        mv_qFN    = '"mv"'
+        mvx_qFN    = '"mv"'
+        cutx_qFN   = '"cut"'
+        uniqx_qFN  = '"uniq"'
+        prx_qFN    = '"pr"'
 
         samtoolsx_qFN = f'"{samtools_FP}samtools"'
         bcftoolsx_qFN = f'"{samtools_FP}bcftools"'
@@ -652,9 +688,9 @@ def init(gui=False):
         bgzipx_qFN    = f'"{samtools_FP}bgzip"'  # Only used in export_unmapped_reads at the current time
         bwax_qFN      = f'"{samtools_FP}bwa"'
         bwamem2x_qFN  = f'"{samtools_FP}bwamem2"'
-        #minimap2x_qFN  = f'"{samtools_FP}minimap2"'
-        #fastpx_qFN   = f'"{samtools_FP}fastp"'         # Make sure to enable in fastp button as well
-        fastqcx_qFN = f'"{install_FP}FastQC/FastQC.jar"'
+        # minimap2x_qFN  = f'"{samtools_FP}minimap2"'
+        # fastpx_qFN   = f'"{samtools_FP}fastp"'         # If unquote here, make sure to enable in fastp button
+        fastqcx_qFN   = f'"{install_FP}FastQC/FastQC.jar"'
 
         jre8 = f'/Library/Java/JavaVirtualMachines/zulu-8.jre/Contents/Home/bin/java'
         if not java8x_FN and is_command_available(jre8, "-version", True):
@@ -677,19 +713,22 @@ def init(gui=False):
         samtools_oFP  = ''
         samtools_FP   = ''
 
-        bashx_oFN = '/bin/bash'
-        headx_qFN = '"head"'
-        tailx_qFN = '"tail"'
-        awkx_qFN  = '"awk"'
-        grepx_qFN = '"grep"'
-        sortx_qFN = '"sort"'
-        catx_qFN  = '"cat"'
-        zcatx_qFN = '"zcat"'
+        bashx_oFN  = '/bin/bash'
+        headx_qFN  = '"head"'
+        tailx_qFN  = '"tail"'
+        awkx_qFN   = '"awk"'
+        grepx_qFN  = '"grep"'
+        sortx_qFN  = '"sort"'
+        catx_qFN   = '"cat"'
+        zcatx_qFN  = '"zcat"'
         wcx_qFN    = '"wc"'
-        sedx_qFN  = '"sed"'
-        zipx_qFN  = '"zip"'
+        sedx_qFN   = '"sed"'
+        zipx_qFN   = '"zip"'
         unzipx_qFN = '"unzip"'
-        mv_qFN    = '"mv"'
+        mvx_qFN    = '"mv"'
+        cutx_qFN   = '"cut"'
+        uniqx_qFN  = '"uniq"'
+        prx_qFN    = '"pr"'
 
         samtoolsx_qFN = '"samtools"'
         bcftoolsx_qFN = '"bcftools"'
@@ -697,9 +736,9 @@ def init(gui=False):
         bgzipx_qFN    = '"bgzip"'
         bwax_qFN      = '"bwa"'
         bwamem2x_qFN  = '"bwamem2"'
-        minimap2x_qFN  = '"minimap2"'
+        minimap2x_qFN = '"minimap2"'
         fastpx_qFN    = '"fastp"'
-        fastqcx_qFN = f'"{install_FP}FastQC/FastQC.jar"'
+        fastqcx_qFN   = f'"{install_FP}FastQC/FastQC.jar"'
 
         jre8 = f'/usr/lib/jvm/java-8-openjdk-amd64/bin/java'
         if not java8x_FN and is_command_available(jre8, "-version", True):
@@ -739,94 +778,45 @@ def init(gui=False):
     #
     # Start up key subsystems:  Language Translation, Temporary Files directory, Reference Library directory
     #
-    top_level = gui         # If in GUI mode (main program), then also treat as top_level call at program start
 
     # window not null says mainwindow_init has been run, dnaImage not null says mainwindow_setup has been run
-    if top_level:   # When not called by independent programs without GUI; setup now in case language not in settings
+    if gui:   # When not called by independent programs without GUI; setup now in case language not in settings
         window = mainwindow_init()      # pseudo class __init__ call; creates root window and Fonts subsystem
-        fonts = FontTypes(top_level)    # Only needed with GUI active
+        fonts = FontTypes(gui)          # Only needed with GUI active
 
     # Start i18n Language subsystem (utilities.py)  (start first so warnings / error messages can be translated)
     lang = LanguageStrings(language_oFN)  # Start language subsystem (utilities.py)
-    # lang.read_language_setting(langset_oFN)  # Try stored lang setting; otherwise ask user if missing / error
 
     # Start Temporary Files subsystem (utilities.py) with default location
+    top_level = gui  # If in GUI mode (main program), then also treat as top_level call at program start
     tempf = TemporaryFiles(tempfiles_oFN, top_level)  # Initiate TemporaryFiles @ default, do clean of directory
 
     # Start Reference Library subsystem (referencelibrary.py) with default location
-    reflib = ReferenceLibrary(reflib_oFN)  # Initiate ReferenceLibrary @ default location
+    reflib = ReferenceLibrary(reflib_oFN)  # Initiate ReferenceLibrary @ default location (which may not exist)
 
-    # Start Output Directory subsystem (utilities.py) with none (no default).
+    # Start Output Directory subsystem (utilities.py)
     outdir = OutputDirectory()      # No default value
 
-    BAM = None        # No default BAMFile instance; keep unset until a BAM is loaded by user or from settings restore
+    BAM = None      # No default BAMFile instance; keep unset until a BAM is loaded by user or from settings restore
+    VCFs = None     # No default VCF files defined either
 
+    # lang still not set yet; so cannot do translation
+    # if top_level:
+    #     print(lang.i18n["ExplainWhyTerminalWinIsOpen"])
+
+    print(f'--- Restore saved settings')
     load_settings(top_level)    # Grab saved setting from users home directory; finish subsystem setup
-
-    # Special check; if default reflib does not exist AND no stored setting of reflib then fail as no reflib available
-    # if not (reflib and reflib.valid):
-    #    wgse_message("error", 'InvalidRefLibTitle', True,
-    #                 lang.i18n['errRefLibPath'].replace("{{DIR}}", reflib.oFP))
 
 
 def set_mem_per_thread_millions(totmem, threads):
-    """ Mainly for samtools sort; per thread. Here as we allow saved setting override of threads and totmem """
-    global os_mem       # Global settings value we will set here
+    """ Mainly for samtools sort; per thread. Here as we allow override of threads and totmem saved settings """
 
     mpt = totmem // threads
 
     # Get a nice floor (round down) per 100+ million bytes if over 100 million; hopefully over 1GB
     mpt_mills = (mpt // 10 ** 8) * 100 if mpt > 10 ** 8 else (mpt // 10 ** 6)
 
-    os_mem = str(mpt_mills) + 'M'   # Set global value (as string) to use in commands later
-
-    return mpt_mills    # Return numeric value of os_mem in millions
-
-
-def load_program_version():
-    """
-    Read the program/version.json file purely to setup the __version__ string for the program
-    """
-    import os
-    import json
-    from utilities import DEBUG
-
-    global __version__, manual_url
-
-    # Fallback defaultgs
-    rel_type = "Unk"
-    wgse_version = 0
-    wgse_date = "1 Jan 1970"
-    manual_url = "https://wgsextract.github.io/"
-
-    release_json = {}
-    if os.path.exists(f'{install_oFP}/release.json'):
-        try:
-            with open(f'{install_oFP}/release.json', "r") as f:
-                release_json = json.load(f).get('release')
-            DEBUG(f'Installer.json: {release_json}')
-        except:  # Exception here if file processing error on existing file
-            DEBUG(f'*** Error processing Program.json file')
-        finally:
-            rel_type = release_json.get('track', rel_type)
-
-    program_json = {}
-    if os.path.exists(f'{prog_oFP}/program.json'):
-        try:
-            with open(f'{prog_oFP}/program.json', "r") as f:
-                program_json = json.load(f).get('program')
-            DEBUG(f'Program version.json: {program_json}')
-        except:  # Exception here if file processing error on existing file
-            DEBUG(f'*** Error processing Program.json file')
-        finally:
-            wgse_version = program_json.get('version', wgse_version)
-            wgse_date    = program_json.get('date', wgse_date)
-            manual_url   = program_json.get('manual', manual_url)
-
-    if rel_type == "Dev":
-        __version__ = f'{rel_type} 4.{wgse_version} ({wgse_date})'      # two v's in a row looks weird
-    else:
-        __version__ = f'{rel_type} v4.{wgse_version} ({wgse_date})'
+    return str(mpt_mills) + 'M'    # Return as string in millions for use in command line (nominally assign to os_mem)
 
 
 # noinspection PyUnresolvedReferences
@@ -855,7 +845,7 @@ def load_settings(top_level=False):
 
     # Restore value IF stored in file and class subsystem setup to receive the value; else retain old value
     # We have avoided setting up each subsystem until this call as a stored setting may override default
-    #  (or in the case of language, the stored setting or pop-up to user selects the language)
+    #  (or in the case of language, the stored setting or then pop-up to user selects the language)
 
     DEBUG(f'Settings to restore: {settings_to_restore}')
 
@@ -880,19 +870,25 @@ def load_settings(top_level=False):
         raise
     reflib.change(settings_to_restore.get('reflib.FP', reflib.FP))
 
+    # Need reflib to proceed; if no default reflib OR stored setting then no subsystem
+    if not (reflib and reflib.valid):
+        # Need the reference library set and filled by this point before trying to load the first BAM
+        wgse_message("error", 'InvalidRefLibTitle', True, lang.i18n['errRefLibPath'].replace("{{DIR}}", reflib.oFP))
+        raise
+
     if not outdir:
         DEBUG("*** FATAL ERROR: Output Directory subsystem not available!")
         raise
-    outdir.change(settings_to_restore.get('outdir.FP', outdir.FP))
+    outdir.change(settings_to_restore.get('outdir.FP', outdir.FP), True)    # If saved, must have been user_set
 
-    if not fonts and top_level:
-        DEBUG("*** FATAL ERROR: Fonts Subsytem not available!")
-        raise
     if top_level:
+        if not fonts:
+            DEBUG("*** FATAL ERROR: Fonts Subsytem not available!")
+            raise
         fonts.change(newface=settings_to_restore.get('fonts.face', fonts.face),
                      newbasept=settings_to_restore.get('fonts.basept', fonts.basept))
 
-    # Set now because BAM load / restore may caused Ref Library download request
+    # Set now because BAM load / restore may cause Ref Library download request
     prefserver = settings_to_restore.get('prefserver', prefserver)
 
     # Allow user override of threads and total memory (but not greater than platform returned values)
@@ -903,11 +899,11 @@ def load_settings(top_level=False):
         updated = True
 
     os_totmem_saved  = settings_to_restore.get('os_totmem_saved', 0)
-    if 2 <= os_totmem_saved < os_totmem_proc//10**9:  # Really should be 12 GB min for BWA but just stick with 2 GB for now
+    if 2 <= os_totmem_saved < os_totmem_proc//10**9:  # Should be 12 GB min for BWA but just stick with 2 GB for now
         os_totmem = os_totmem_saved * 10**9
         updated = True
 
-    set_mem_per_thread_millions(os_totmem, os_threads)      # Ignore return; just use setting global os_mem value
+    os_mem = set_mem_per_thread_millions(os_totmem, os_threads)     # Note, a string useable in a command line
 
     if updated:
         DEBUG(f'Updated: Procs: {os_threads}, total Mem: {(os_totmem/10**9):.1f} GB, mem per thread: {os_mem}')
@@ -931,6 +927,8 @@ def load_settings(top_level=False):
             if outdir.FP and BAM:  # Sets part of output File variables that include BAM base name
                 outdir.oFPB = outdir.oFP + BAM.file_FB
                 outdir.FPB  = outdir.FP  + BAM.file_FB
+
+    # Todo restore / save VCF's? FASTQs? Full BAM Stats?
 
     DEBUG(f'Finished restoring saved settings.')
 
@@ -957,7 +955,7 @@ def save_settings():
         settings_to_save['tempf.save_FP'] = tempf.save_FP
     if reflib and reflib.set:
         settings_to_save['reflib.FP'] = reflib.FP
-    if outdir and outdir.FP:
+    if outdir and outdir.FP and outdir.user_set:
         settings_to_save['outdir.FP'] = outdir.FP
     if fonts and fonts.face != fonts.default_face:
         settings_to_save['fonts.face'] = fonts.face
@@ -971,6 +969,7 @@ def save_settings():
         settings_to_save['os_totmem_saved'] = os_totmem_saved
     if BAM and BAM.file_FN:
         settings_to_save['BAM.file_FN'] = BAM.file_FN
+    # Todo restore / save VCF's?
     # DEBUG_MODE is not a saved setting; as is in a special file checked and read at program startup earlier
     # DEBUG(f'WGSE JSON Settings to save: {settings_to_save}')
 

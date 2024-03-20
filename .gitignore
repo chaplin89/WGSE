@@ -8,3 +8,5 @@ temp
 yleaf
 .vscode
 **/*.pyc
+reference
+bare_minimum

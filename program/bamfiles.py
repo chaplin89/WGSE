@@ -1,6 +1,12 @@
 # coding: utf8
+#
+# BAM(/CRAM) Files Library (Class) Module
+#
+# Part of the
+# WGS Extract (https://wgse.bio/) system
+#
 # Copyright (C) 2018-2020 City Farmer
-# Copyright (C) 2020-2022 Randy Harr
+# Copyright (C) 2020-2023 Randy Harr
 #
 # License: GNU General Public License v3 or later
 # A copy of GNU GPL v3 should have been included in this software package in LICENSE.txt.
@@ -11,13 +17,17 @@
     processing)  The idea is a class instance for each BAM file specified.  Eventually allowing for multiple to be
     known at the same time.  Once a BAM file is selected in the OS interface in the main Window module, the BAM
     object is instantiated and processing begins. Is the main driver of the referencegenome module.
+
+    Currently, for efficiency, most manipulation is done with compiled binaries optimized for the platform; not
+    direct reading and manipulation of the BAM file itself. This is both processing and memory efficiency.
 """
 
-import os       # for path, stat
+import os                   # for path, stat
+# import re                   # For help shortening BAM base descriptions
 from math import sqrt       # for process_bam_body
 
-from utilities import DEBUG, is_legal_path, nativeOS, universalOS, unquote, Error, Warning, wgse_message, check_exists
-from commandprocessor import run_bash_script
+from utilities import DEBUG, is_legal_path, nativeOS, universalOS, unquote, Error, wgse_message, check_exists
+from commandprocessor import run_bash_script, simple_command
 from fastqfiles import determine_sequencer
 import settings as wgse
 
@@ -68,23 +78,25 @@ class BAMFile:
         self.file_FP   = None
         self.file_FB   = None
         self.file_FS   = None
+        self.disp_FBS  = None   # For stats pages, loaded file label, etc. (30 characters max)
+        self.ldisp_FBS = None   # Allow longer name in Program Banner (50 characters max)
 
         self.file_type = None    # for "SAM", "BAM", or "CRAM" (file_FS without the leading dot)
 
-        self.R1fastq_FN = None   # Now storing FASTQ file names associated with BAM / CRAM file (if known)
-        self.R2fastq_FN = None
+        self.R1fastq_FN = ""   # Now storing FASTQ file names associated with BAM / CRAM file (if known)
+        self.R2fastq_FN = ""
         self.VCFs = None         # e.g. [ (f'{wgse.outdir.FPB}.vcf.gz', {'SNP'. 'InDel'}, {'A', 'X', 'Y', 'M'}) ]
 
-        self.Header    = ""      # Will save complete BAM Header in text form (samtools view -H)
-        self.file_stats = None   # File Stat result (for file size and other items)
-        self.relfsize  = None    # Relative file size (to 45 GB) (to scale time values)
+        self.Header     = ""      # Will save complete BAM Header in text form (samtools view -H)
+        self.file_stats = None    # File Stat result (for file size and other items)
+        self.relfsize   = None    # Relative file size (to 45 GB) (to scale time values)
 
-        self.Refgenome = None    # {hg,GRCh}{19/37,38}, hs37d5, hs38DH (not all combinations valid)
+        self.Refgenome = None     # {hg,GRCh}{19/37,38}, hs37d5, hs38DH (not all combinations valid)
         self.RefgenomeNew = None  # Following Reference Model study: hg, 1kg, ebi, ncbi
         self.Refgenome_qFN = None  # quoted File name of reference genome used for BAM
         self.RefMito   = None    # rCRS, Yoruba, RSRS
-        self.SNTypeC   = None    # "Chr", "Num" or "Acc" (NCBI Accession #)
-        self.SNTypeM   = None    # M or MT
+        self.SNTypeC   = None    # "Chr", "Num" or "Acc" (NCBI Genbank / Refseq Accession #)
+        self.SNTypeM   = None    # chrM, MT (, chrMT, M, Acc)
         self.SNCount   = 0       # Count of '@SQ:\tSN' entries in Header
         self.Build     = None    # Major Build (19?, 36, 37, 38, 99 for T2T)
         self.ReadType  = None    # Read type: Paired or Single (-end)
@@ -96,7 +108,7 @@ class BAMFile:
 
         self.gender    = None
 
-        self.Sorted    = False
+        self.Sorted    = False      # Starts as bool False but may get set to None to mean Unaligned
         self.Indexed   = False
         self.low_coverage = False
         self.long_read    = False
@@ -119,6 +131,15 @@ class BAMFile:
         self.avg_read_stddev            = 0  # Read Length standard deviation
         self.insert_size                = 0  # Read Insert Size mean (aka Read Span or Read Fragment Length)
         self.insert_stddev              = 0  # Read Insert Size standard deviation
+        self.mapq                       = 0  # MapQ mean
+        self.mapq_stddev                = 0  # MapQ standard deviation
+        self.raw_q20                    = 0  # BaseQ > Phred 20 (fract %) (FASTQ)
+        self.raw_q30                    = 0  # BaseQ > Phred 30 (franct %) (FASTQ)
+        self.map_q20                    = 0  # BaseQ > Phred 20 (fract %) (BAM & mapped, not dup)
+        self.map_q30                    = 0  # BaseQ > Phred 30 (franct %) (BAM & mapped, not dup)
+        self.pup_q20                    = 0  # BaseQ > Phred 20 (fractional percent) (post pile-up)
+        self.pup_q30                    = 0  # BaseQ > Phred 30 (franctional percent) (post pile-up)
+        self.dups_percent               = 0  # Percent of reads marked duplicate (mapped)
 
         self.Stats        = False   # Will delay calculating basic stats if file not indexed
         self.coverage     = None    # Breadth of Coverage for whole BAM (valid value may be zero)
@@ -132,6 +153,8 @@ class BAMFile:
         self._setup_BAM(BAM_FN)
 
     def _setup_BAM(self, BAM_FN):
+        from mainwindow import set_outdir
+
         """ Check BAM File name / path is legal; fill in basic stats from BAM file if so. Assert on error. """
         BAM_oFN = nativeOS(BAM_FN)
         if not is_legal_path(BAM_oFN):
@@ -144,35 +167,52 @@ class BAMFile:
         self.file_FN   = BAM_FN
         self.file_qFN  = f'"{self.file_FN}"'
 
-        self.file_FP   = os.path.dirname(BAM_FN)
+        # IMPORTANT NOTE: The "B" of PBS may be further stripped from expected; so P+BS does not get you BAM_FN
+        self.file_FP, self.file_FBS = os.path.split(BAM_FN)
+        # self.file_FP   = os.path.dirname(BAM_FN)
+        # self.file_FBS  = os.path.basename(BAM_FN)
+
         self.file_FP  += '/' if self.file_FP[-1] != '/' else ''  # Assure trailing slash; universalOS so forward slash
 
         self.file_oFPB = os.path.splitext(BAM_oFN)[0]
         self.file_FPB  = universalOS(self.file_oFPB)
 
-        self.file_FBS  = os.path.basename(BAM_FN)
+        # Remove some common, non-informational naming in BAM files (done with FASTQ and VCFs elsewhere)
+        #  yseq: _bwa-mem_hg3{7-8}_sorted (WGSE may add _sorted) ; Sequencing: -MM-DD-YY ; new Nebula: .mm2.sortdup.bqsr
+        self.file_FBS = self.file_FBS.replace("_bwa-mem", "").replace("_sorted", "").replace("_aligned", "")
+        self.file_FBS = self.file_FBS.replace(".mm2.sortdup.bqsr", "").replace("_winnowmap.sorted", "")
+        # self.file_FBS = re.sub(r"-[01]\d-[0-3]\d-\d\d", "", self.file_FBS)        # Keep date in Sequencing name?
+
         self.file_FB, self.file_FS = os.path.splitext(self.file_FBS)
         self.disp_FBS  = self.file_FBS if len(self.file_FBS) < 31 else f'{self.file_FBS[:12]} ... {self.file_FBS[-13:]}'
+        self.ldisp_FBS  = self.file_FBS if len(self.file_FBS) < 51 else f'{self.file_FBS[:25]} ... {self.file_FBS[-20:]}'
+        # Now recreate FPB from potentially shortened FB (actually shortened FBS with S removed)
+        self.file_FPB = self.file_FP + self.file_FB
+        self.file_oFPB = nativeOS(self.file_FPB)
 
-        self.file_type = self.file_FS[1:].upper()    # strip leading dot and upcase
+        self.file_type = self.file_FS[1:].upper()           # strip leading dot and upcase
         if self.file_type not in ["BAM", "CRAM", "SAM"]:    # Internal call may pass an incorrect file
             raise BAMContentError('errBAMFileExtension')
 
         self.file_stats = os.stat(self.file_oFN)
         if self.file_stats.st_size == 0:
             raise BAMContentError('errBAMFileEmpty')
-        self.relfsize = max(0.01, self.file_stats.st_size / (45 * 10.0 ** 9))    # Relative size to 45GB (time adjust)
+        self.relfsize = max(0.01, self.file_stats.st_size / (45 * 10.0 ** 9))    # Relative size to 45 GB (time adjust)
 
-        # Do a bunch of quick things, custom here, that lets us characterize the BAM a bit. May pop-out witha Raise ...
-        wgse.BAM = self                 # May need within the below calls, so setup global setting now
-        self.process_bam_header()       # Quick but may have error exceptions
-        self.process_bam_body()         # Little longer (10 seconds max) but key ones like read length, etc.
+        # We have successfully setup a BAM; set the global variable for such
+        wgse.BAM = self
 
-        # We have three stats commands we can run. We try the get_samtools_idxstats call as it enables the rest of
-        # the GUI buttons (change_status_of_actiona_buttons). But it will only actually run the stats command if
-        # button_directly=true OR it is a BAM file with an index (both are under one second). Get_samtools_idxstats
-        # calls the other two but with button_directly=False. That way, if a previous call results exist (on any of
-        # the three), we process the stats file now. May "raise" a warning.
+        # Do some quick stats here to characterize the BAM. May pop-out with a Raise ...
+        self.process_bam_header()               # Quick but may have Raise error exceptions
+        self.determine_reference_genome()       # Only need header available to determine the reference_genome
+        self.process_bam_body()                 # Little longer but key values like read length, etc.
+
+        # At this point, would prefer to have the output directory set (so can find / save stats results)
+        # With 4.45, now allow an automatic default output directory to be found (or created) for a BAM
+        if wgse.outdir and not wgse.outdir.user_set:
+            set_outdir(self.file_FP, user_set=False)   # Will only be called after setting up BAM
+
+        # Try to run the initial idxstats now (if quick) as it enables many of the buttons in the GUI
         try:
             self.get_samtools_idxstats(button_directly=False)
         except Exception as err:
@@ -184,55 +224,48 @@ class BAMFile:
         """ Reads and stores BAM header. Sets BAM.CoordSorted also. Does not need BAM Index file (.bai). """
 
         # Rewritten to process more of header; and process header in Python and not BASH AWK/GREP scripts
-        samtools = wgse.samtoolsx_qFN
-        bamhead_qFN = f'"{wgse.tempf.FP}bamheader.tmp"'
-        bamfile  = self.file_qFN
+        samtools = nativeOS(unquote(wgse.samtoolsx_qFN))
+        # bamhead_qFN = f'"{wgse.tempf.FP}bamheader.tmp"'
+        bamfile  = self.file_oFN
 
-        commands = f'{samtools} view -H --no-PG {bamfile} > {bamhead_qFN} \n'
-
-        run_bash_script("GetBAMHeader", commands)
-
-        bamhead_oFN = unquote(nativeOS(bamhead_qFN))
-        if not os.path.exists(bamhead_oFN) or os.path.getsize(bamhead_oFN) < 600:  # Command success check
-            raise BAMContentError('errBAMHeader')
-        try:
-            with open(bamhead_oFN, "r") as f:
-                self.Header = f.read()
-        except:
+        self.Header = simple_command((samtools, "view", "-H", "--no-PG", bamfile))
+        if self.Header is None or len(self.Header) < 600:
             raise BAMContentError('errBAMHeader')
 
+        # Sorted stores if coordinate sorted or not (name sorted is default otherwise, usually). But have to handle
+        #  special case of unaligned BAMs that have an "unknown" sort (not name or position/coordinate sorted)
         if "SO:coordinate" in self.Header:
             self.Sorted = True
         elif "SO:unsorted" in self.Header:
             self.Sorted = False
+        elif "SO:unknown" in self.Header:       # Unaligned BAM
+            self.Sorted = None
         else:
-            DEBUG(f"ERROR: BAM coord sorted state in Header?: {self.Header[0]}")
-        DEBUG(f"Bam Coord Sorted? {self.Sorted}")
-        
-        self.Indexed = self.check_for_bam_index()
+            DEBUG(f"BAM Sorted? SO record not found or understood in header.")
+            raise BAMContentError('errBAMHeader')   # No @HD record to start the file?
+        DEBUG(f'BAM Sorted? {"Unaligned" if self.Sorted is None else "Coord" if self.Sorted else "Name"}')
 
-        self.determine_reference_genome()       # Only need header available to determine reference_genome
+        self.Indexed = self.check_for_bam_index()
 
     def process_bam_body(self, reentrant=None):
         """
-        Processes the BAM body.  Operate on first 100K sequence entries (2 million if Nanopore).
-        Called internally from the "Show Stats" button as well.
-        Will not have run idxstats yet if detected unsorted, unindexed or a CRAM.
+        Processes the BAM body. Used mainly to determine read type (Paired, single-end), avg read length, avg insert
+        size, duplicate percent, BaseQuality, etc.  As BAM is coordinate sorted and
 
-        Used mainly to look at body of BAM/CRAM and determine read type (Paired, single-end),
-        avg read length and now avg insert size. Other flags may be scanned later.  As BAM is coordinate sorted and
-        we are taking the first 100,000 samples, basically reading chromosome 1 for most WGS files presented here.
+        Would prefer to randomly subsample, but samtools subsample takes 20 minutes for a ~60k entries. So instead
+        skip the first X samples (as many models have Ns for the telomeres and we want to avoid the segments
+        overlapping that region) and then take the next Y samples. This takes a second.
 
-        Found 100,000 is good enough for most standard 30x WGS paired-end files of around 150 bp read length.
-        Found need at least 2,000,000 lines for Nanopore long reads due to large variance.
-        ySeq WGS400 single-end files at 400 bp have no variance from that exact length. 
+        Found 100K samples and skiping 400K is good enough for most standard 30x WGS paired-end files of 150 bp
+        read length. Found need at least 2,000,000 lines for Nanopore long reads due to large variance.
+        ySeq WGS400 single-end files at 400 bp have no variance from that exact length.
 
-        Originally was our own awk scripts, head, cut, etc. Simply read in value result file.
+        Originally was our own awk scripts, head, cut, etc. Simply read in the result file.
         Updated 15Sep2021 to use David Wei script (https://gist.github.com/davidliwei/2323462)
         But found it too buggy for the variety of BAMs we see (Nebula, FTDNA BigY, Nanopore from minimap2, etc).
-        So went back to all hand-grown code but in python here. As do not have idxstats and a total read count.
-        cannot subsample with something like samtools view -s because we do not know what fraction to ask for.
+        So went back to all hand-grown code but now in python here.
         """
+
         # This routine is re-entrant. We need to save intermediate calculations to continue to build upon.
         # Instead of class global, we overload the parameter to either be None by default or a list of
         # saved, intermediate values that are passed in. Ugly?
@@ -240,40 +273,61 @@ class BAMFile:
             first_time = True
             # Initialize stats globals if first time through
             readtyp = 0  # We do not know which yet; negative is paired end and positive is single end
+            dupcnt = totseg = 0             # duplicate segment count / total segments count
             lencnt = lenmean = lenM2 = 0    # Initializing Welford Algorithm for read length
             sizcnt = sizmean = sizM2 = 0    # Initializing Welford Algorithm for insert size
+            mapcnt = mapmean = mapM2 = 0    # Initializing Welford Algorithm for MAPQuality score
         else:
             first_time = False
-            # Restore stats globals to current values after re-entering
-            (readtyp, lencnt, lenmean, lenM2, sizcnt, sizmean, sizM2) = reentrant
+            # Restore stats globals to current values after re-entering; will skip first numsamp
+            (readtyp, dupcnt, totseg,
+             lencnt, lenmean, lenM2,
+             sizcnt, sizmean, sizM2,
+             mapcnt, mapmean, mapM2) = reentrant
 
         samtools = wgse.samtoolsx_qFN
         head = wgse.headx_qFN
         tail = wgse.tailx_qFN
-        bamfile = self.file_qFN
-        flagfile_qFN = f'"{wgse.tempf.FP}flags.tmp"'        # To hold BAM samples from body
+        cat = wgse.catx_qFN
+        cut = wgse.cutx_qFN
+        uniq = wgse.uniqx_qFN
+        sort = wgse.sortx_qFN
+        pr = wgse.prx_qFN
 
-        if self.file_type == "CRAM":
-            if self.Refgenome and wgse.reflib.missing_refgenome(self.Refgenome_qFN):
+        bamfile = self.file_qFN
+        flagfile_qFN  = f'"{wgse.tempf.FP}flags.tmp"'        # To hold BAM samples from body
+        flagfile2_qFN = f'"{wgse.tempf.FP}flags2.tmp"'       # To hold mpileup BaseQ scores of body sample
+
+        if self.Refgenome:
+            if wgse.reflib.missing_refgenome(self.Refgenome_qFN, required=self.file_type == "CRAM"):
                 raise BAMContentErrorFile('errRefGenFileMissing', os.path.basename(unquote(self.Refgenome_qFN)),
                                           self.Refgenome)  # Will override and not print error when Refgenome set
-            elif not self.Refgenome:
-                raise BAMContentError('errCRAMCannotDetermineReference')
-            cram_opt = f'-T {self.Refgenome_qFN}'
-        else:
-            cram_opt = ""
+        elif self.file_type == "CRAM":
+            raise BAMContentError('errCRAMCannotDetermineReference')
+        cram_opt = f'-T {self.Refgenome_qFN}' if self.file_type == "CRAM" else ""
 
         # Re-entrant code allows two runs of sampling from the BAM; numsamp then lonsamp additional
-        numsamp = 20000             # Typically can get away with first numsamp as sample size
-        lonsamp = numsamp * 29      # Nanopore long read BAMs need more samples; have more variance
+        skip = 40000            # Skip first values; often chromo start with repetitive / low quality reads
+        numsamp = 20000         # Typically can get away with first 20k for sample size (need higher for dup %)
+        lonsamp = numsamp * 5   # Nanopore long read BAMs have more variance; this is in addition to numsamp
         nstep = numsamp / 10
         lstep = lonsamp / 10
-        if first_time:
-            commands = f'{samtools} view {cram_opt} {bamfile} | {head} -{numsamp} > {flagfile_qFN} \n'
-            run_bash_script('ButtonBAMStats2', commands)  # not running stats again; so simply do it
-        else:
-            commands = f'{samtools} view {cram_opt} {bamfile} | {tail} +{numsamp} | {head} -{lonsamp} > {flagfile_qFN} \n'
-            run_bash_script('ButtonBAMStatsLong', commands)
+
+        # We prefer to statistically subsample instead of taking the first numsamp entries but ...
+        # Statistical sampling on 60k values takes 14 minutes vs under 1/10 sec for first 100k samples
+        # Do not have the num_segs yet (from idxstats); so use 660 million reads
+        # num_segs = 660000000
+        # percentsub = numsamp / num_segs
+        # samp = f'10{percentsub:.6f}'
+        # commands = f'{samtools} view -s {samp} {cram_opt} {bamfile} > {flagfile_qFN} \n'
+
+        # We skip the start as often it is the beginning of a chromosome with repitive / low quality score areas
+        skip =               skip if first_time else skip + numsamp     # skip head of file
+        bulk =            numsamp if first_time else lonsamp            # 2nd round starts with first run values
+        title = 'ButtonBAMStats2' if first_time else 'ButtonBAMStatsLong'
+
+        commands = f'{samtools} view {cram_opt} {bamfile} | {tail} +{skip} | {head} -{bulk} > {flagfile_qFN} \n'
+        run_bash_script(title, commands, parent=wgse.window)
 
         flagfile_oFN = nativeOS(unquote(flagfile_qFN))
         if not os.path.exists(flagfile_oFN):
@@ -281,31 +335,41 @@ class BAMFile:
 
         # Ugly; this was not faster than an awk script; added (one pass) std dev to the calculation
         with open(flagfile_oFN, "r") as flags_file:
+
+            # Only need single read to determine seqID; simply take first line and skip
+            if first_time:
+                field = flags_file.readline().split("\t")
+                self.Sequencer = determine_sequencer(field[0]) if field and field[0] else "Unknown"
+                DEBUG(f'Sequencer: {self.Sequencer} (ID: {field[0]})')
+
             for flag_line in flags_file:
                 field = flag_line.split("\t")
 
                 # field[1] = f'{int(field[1]):#014b}'
                 # DEBUG(f'FLAG: {field[1]}, Flen: {len(field[9])}, RNEXT: {field[6]}, TLEN: {field[8]}')
 
-                # Skip if higher order flag bits set (supplementary, 2nd alignment, not passing filters)
-                if int(field[1]) & 0xB00:
+                if int(field[1]) & 0x400:
+                    dupcnt += 1
+                totseg += 1
+
+                # Skip if higher order flag bits set (supplementary, 2nd alignment, not passing filters, dup)
+                if int(field[1]) & 0xF00:
                     continue
 
                 # Check mean and stddev stability
-                if wgse.DEBUG_MODE and lencnt % nstep == 0 and (first_time or lencnt % lstep == 0) and lencnt > 0:
+                if wgse.DEBUG_MODE and lencnt > 0 and (
+                    (first_time and lencnt % nstep == 0) or (not first_time and lencnt % lstep == 0)):
                     lenstd = sqrt(lenM2 / (lencnt - 1)) if lencnt > 2 else 0
                     sizstd = sqrt(sizM2 / (sizcnt - 1)) if sizcnt > 2 else 0
-                    # DEBUG(f'@Count: {lencnt} - Read Avg: {lenmean:,.0f}, {lenstd:,.0f};  Insert Avg: {sizmean:,.0f}, {sizstd:,.0f}')
+                    mapstd = sqrt(mapM2 / (mapcnt - 1)) if mapcnt > 2 else 0
+                    DEBUG(f'@Count: {lencnt} - Read Mean: {lenmean:,.0f}, stddev={lenstd:,.0f}; '
+                                           f'Insert Mean: {sizmean:,.0f}, stddev={sizstd:,.0f}; '
+                                             f'MapQ Mean: {mapmean:,.0F}, stddev={mapstd:,.0f}')
 
                 # Process FLAG field (2nd col) with 0x1 mask; 1 to indicate paired-end or 0 for single-end reads
                 # Will keep running sum using +1 for each paired read and -1 for each single-end read
                 if first_time:      # First time run is enough samples to accurately determine
                     readtyp += 1 if int(field[1]) & 0x1 else -1  # Try to make sure is clearly one or the other
-
-                    if lencnt == 0:
-                        # Only need single read to determine seqID; simply take last one still in memory
-                        self.Sequencer = determine_sequencer(field[0]) if field and field[0] else "Unknown"
-                        DEBUG(f'Sequencer: {self.Sequencer} (ID: {field[0]})')
 
                 # Process SEQ field (10th col) for mean length and std dev (one pass); ignore if only '*'.
                 # Not using CIGAR field as discriminator; not reliable in the variety of BAMs
@@ -319,22 +383,31 @@ class BAMFile:
 
                 # Process RNEXT and TLEN fields (7th and 9th col) for insert size and std dev. RNEXT is '=' if
                 # paired read and then TLEN is the calculated template length. Positive for forward read; negative
-                # for reverse.  Only process forward reads and if tlen != 0 (tlen always 0 if RNEXT is not '=')
-                # Note: tlen always below 1200 on Novaseq 6000 but sometimes > 50k; throw those out but keep the
-                # window of allowable large for Nanopore and PacBio HiFi CCS reads
-                tlen = int(field[8]) if field[6] == '=' else 0
-                if 0 < tlen < 50000:
+                # for reverse. Tlen is 0 of rnext != '='.
+                # Note: tlen always below 1200 on Novaseq 6000 but sometimes > 50k; throw those large ones out but
+                # keep the window of large for Nanopore and PacBio HiFi CCS reads
+                tlen = abs(int(field[8])) if field[6] == '=' else -1
+                if -1 < tlen < 50000:
                     sizcnt += 1
                     sizdelta = tlen - sizmean
                     sizmean += sizdelta / sizcnt
                     sizdelta2 = tlen - sizmean
                     sizM2 += sizdelta * sizdelta2
 
-        DEBUG(f'Read Length Count: {lencnt}, Insert Size Count: {sizcnt}')
-        DEBUG(f'Read Length: {lenmean:,.0f}, Insert Size: {sizmean:,.0f}')
+                # Process MAPQ field (5th col)
+                mval = int(field[4])
+                mapcnt += 1
+                mapdelta = mval - mapmean
+                mapmean += mapdelta / mapcnt
+                mapdelta2 = mval - mapmean
+                mapM2 += mapdelta * mapdelta2
+
+        DEBUG(f'Read Length Count: {lencnt:,}, Insert Size Count: {sizcnt:,}')
+        DEBUG(f'Read Length Mean: {lenmean:,.0f}, Insert Size Mean: {sizmean:,.0f}')
 
         # Some things are always determinate in the first, shorter pass
         if first_time:
+
             # Determine read type based on clear majority
             self.ReadType = "Paired" if readtyp > nstep else \
                             "Single" if readtyp < -nstep else \
@@ -349,12 +422,46 @@ class BAMFile:
                 # No insert length because RNEXT never '='; but FLAGS indicate Paired -- inconsistent
                 raise BAMContentErrorFile('errBAMInconsistentReadType', flagfile_oFN)
 
+            # Calculate the "mapped" BaseQ score (Phred) by doing a pileup and measuring its resulting score
+            samp = 300 if lenmean > 410 else int(numsamp / 10)
+            commands  = f'{{ {samtools} view -H {cram_opt} {bamfile} ; {cat} {flagfile_qFN} | {head} -{samp} ; }} | ' \
+                        f' {samtools} mpileup - | {cut} -f6 | {cut} -c1 | {sort} | {uniq} -c > {flagfile2_qFN} \n'
+            commands += f'{head} {flagfile2_qFN} | {pr} -aT7 \n' if wgse.DEBUG_MODE else ""
+            run_bash_script('ButtonBAMStats3', commands, parent=wgse.window)
+
+            flagfile2_oFN = nativeOS(unquote(flagfile2_qFN))
+            if not os.path.exists(flagfile2_oFN):
+                raise BAMContentErrorFile('errBAMNoFlags2File', flagfile2_oFN)
+
+            # Simple bin calculation for Q30 and Q20 to get percentages (not mean, std dev)
+            with open(flagfile2_oFN, "r") as pileup_file:
+                tot_cnt = bin30 = bin20 = 0
+                for pile_line in pileup_file:
+                    field = pile_line.strip().split(" ")
+                    cnt = int(field[0])
+                    val = ord(field[1][0])-33
+                    tot_cnt += cnt
+                    if val > 29:
+                        bin30 += cnt
+                    if val > 19:
+                        bin20 += cnt
+
+            self.pup_q30 = self.pup_q20 = 0
+            if tot_cnt > 0:
+                self.pup_q30 = bin30 / tot_cnt
+                self.pup_q20 = bin20 / tot_cnt
+
+            DEBUG(f'Base Quality: >Q30 {self.pup_q30:.0%}, >Q20 {self.pup_q20:.0%}, Total Count {tot_cnt}')
+
         # Nanopore long-read is highly variable; so need to read many more to get a better mean
-        if first_time and lenmean > 410 and "Nanopore" in self.Sequencer:    # Increased len check for ySeq 400 bp single-end read
-            #  Although often less total reads when longer read length, need at least 2 million it seems
+        if first_time and lenmean > 410 and any([x in self.Sequencer for x in ["Nanopore"]]):   # Not PacBio
+            #  Although often less total reads when a longer read length, need more to stabilize values from sample
             DEBUG("Long Read BAM ... reprocessing to get the read length using more read samples")
-            self.process_bam_body(reentrant=[readtyp, lencnt, lenmean, lenM2, sizcnt, sizmean, sizM2])
+            self.process_bam_body(reentrant=[readtyp, dupcnt, totseg, lencnt, lenmean, lenM2,
+                                             sizcnt, sizmean, sizM2, mapcnt, mapmean, mapM2])
             return      # Rest of settings will be done in second run only
+
+        self.dups_percent = dupcnt / totseg
 
         # Calculate final standard deviation (sqrt of final variance) for read length and insert size
         if lencnt > 2:
@@ -371,6 +478,14 @@ class BAMFile:
             self.insert_size = sizmean
             self.insert_stddev = sizstd
 
+        # Calculate mean / std dev of MapQ score (note: most sequencers are 0-60)
+        mapstd = sqrt(mapM2 / (mapcnt - 1))
+        DEBUG(f'MapQ: {mapmean:,.0F}, stddev={mapstd:,.0f}')
+        self.mapq = mapmean                 # 60 is the max we ever see. Convert to percent?
+        self.mapq_stddev = mapstd
+
+        # Todo Save these to a file so they can quickly be restored for long read files? Note outdir may not be set
+
     def get_samtools_idxstats(self, button_directly=False):
         """
             Called immediately after (re)setting a BAM file to update the main window summary results display;
@@ -378,26 +493,30 @@ class BAMFile:
             While it is much faster with an index file available, it is not required.  The file must be sorted though.
         """
 
-        if self.Stats:      # Set by a successful process_samtools_idxstats run so nothing to do
-            return          # Already ran idxstats; no need to run again. Just display from stored values.
+        # Check if process_samtools_idxstats already run; nothing to do if so
+        if self.Stats:
+            return
+
+        # Unsorted BAM cannot have stats command(s) run on it
+        if self.Sorted is None:
+            wgse_message("error", 'errUnalignedBAMTitle', False, 'errUnalignedBAM')
+            return
 
         # May be called before output directory is set; so use temporary files area if so (that must be set)
-        path = wgse.tempf.FP if not wgse.outdir and wgse.outdir.FP is None else wgse.outdir.FP
+        path = wgse.outdir.FP if wgse.outdir and wgse.outdir.FP else wgse.tempf.FP
+
         idxfile_qFN = f'"{path}{self.file_FB}_idxstats.csv"'
         idxfile_oFN = nativeOS(unquote(idxfile_qFN))
 
         idxstats_file_exists = os.path.isfile(idxfile_oFN) and os.path.getsize(idxfile_oFN) > 480
         #   and os.path.getmtime(idxfile_oFN) > os.path.getmtime(self.file_oFN)
-        #   Cannot use file mod times as stats run could be from earlier CRAM / BAM before conversion
+        #   Cannot use file mod time as stat run could be from earlier CRAM / BAM before conversion
 
         if not idxstats_file_exists:    # If idxstats file does not exist, then create it
-            # Unless user hit button directly or is a BAM with Index, then stop as it may take 30+ minutes
-            bam_with_index_exists = self.file_type == "BAM" and self.check_for_bam_index()
-            if not (button_directly or bam_with_index_exists):
-                return      # Simply return without processing any stats command
 
-            # So either Stats button was hit directly (and not run yet) or in a new, indexed BAM so will run it as if
-            #  button hit directly (quick run) to enable full table stats so can enable rest of GUI buttons
+            # So if either (1) the Stats button not clicked directly or (2) not an indexed BAM ; do not auto stats now
+            if not (button_directly or (self.file_type == "BAM" and self.Indexed)):
+                return
 
             # Create and run Samtools idxstats command on the BAM file
             samtools = wgse.samtoolsx_qFN
@@ -409,10 +528,11 @@ class BAMFile:
             title = "ButtonBAMStats" if self.Sorted and self.Indexed and self.file_type == "BAM" else \
                     "ButtonBAMNoIndex" if self.Sorted else \
                     "ButtonBAMNoSort"
-            run_bash_script(title, commands)
+            run_bash_script(title, commands, parent=wgse.window)        # Do not use simple_command; can be a long run
 
             # If still not there then report an error as could not create it when wanted to
-            if not (os.path.isfile(idxfile_oFN) and os.path.getsize(idxfile_oFN) > 480):
+            idxstats_file_exists = os.path.isfile(idxfile_oFN) and os.path.getsize(idxfile_oFN) > 480
+            if not idxstats_file_exists:
                 raise BAMContentErrorFile('errBAMNoIDXStatsFile', idxfile_oFN)
 
         self.process_samtools_idxstats(idxfile_oFN)
@@ -485,7 +605,7 @@ class BAMFile:
             self.gender = 'Unknown'
         elif chrom_types["Y"] == 0 or (chrom_types["X"] / chrom_types["Y"]) > 20:   # Either Y=0 or X/Y >20
             self.gender = 'Female'
-        else:   # Males: Y > x4 X reads ; Females: X > x20 Y reads generally but accept default as Male here
+        else:   # Males: Y > x4 X reads ; Females: X > x5 Y reads generally but accept default as Male here
             self.gender = 'Male'
         self.chrom_types = chrom_types
 
@@ -598,6 +718,7 @@ class BAMFile:
 
         self.Stats = True
 
+    '''
     def get_coverage_stats(self, window, button_directly=False):    # DEPRECATED; use get_bincvg_stats with bam_type="WGS"
         """
             Called from the BAM Stats display page to fill in the Breadth of Coverage column by running
@@ -617,14 +738,14 @@ class BAMFile:
 
         # Long enough operation; if have file from before then reuse
         if button_directly and \
-           not (os.path.isfile(covfile_oFN) and os.path.getsize(covfile_oFN) > 100 and
-                os.path.getmtime(covfile_oFN) > os.path.getmtime(self.file_oFN)):
+           not (os.path.isfile(covfile_oFN) and os.path.getsize(covfile_oFN) > 100):
+            # and os.path.getmtime(covfile_oFN) > os.path.getmtime(self.file_oFN) ):    # Could be after conversion
 
             # Run samtools coverage
             samtools = wgse.samtoolsx_qFN
             bamfile = self.file_qFN
             cramopts = f'--reference {self.Refgenome_qFN}' if self.file_type == "CRAM" else ""
-            if self.file_type == "CRAM" and wgse.reflib.missing_refgenome(self.Refgenome_qFN):
+            if wgse.reflib.missing_refgenome(self.Refgenome_qFN, required=self.file_type == "CRAM"):
                 return
 
             commands = f'{samtools} coverage {cramopts} -o {covfile_qFN} {bamfile} \n'
@@ -702,21 +823,24 @@ class BAMFile:
             samtools = wgse.samtoolsx_qFN
             awk = wgse.awkx_qFN
             bamfile = self.file_qFN
+
             bedfile = wgse.reflib.get_wes_bed_file_qFN(self.Build, self.SNTypeC)
-            cramopts = f'--reference {self.Refgenome_qFN}' if self.file_type == "CRAM" else ""
-            if not check_exists(nativeOS(unquote(bedfile)), 'errNoBEDFile') or \
-               (self.file_type == "CRAM" and wgse.reflib.missing_refgenome(self.Refgenome_qFN)):
+            if not check_exists(nativeOS(unquote(bedfile)), 'errNoBEDFile'):
                 return
+
+            if wgse.reflib.missing_refgenome(self.Refgenome_qFN, required=self.file_type == "CRAM"):
+                return
+            cramopts = f'--reference {self.Refgenome_qFN}' if self.file_type == "CRAM" else ""
 
             # Because the depth file is so large; we process it via a pipe and awk; save per chromosome for user perusal
             # Expanded to include buckets 0-1, 1-4, 4-8, 8+ (inclusive on lower number only)
-            script = """'{ names[$1]=$1 ; if($3==0){zero[$1]++} else {nz[$1]++ ; sumnz[$1]+=$3 ; 
-              if($3>7){nI[$1]++ ; sumnI[$1]+=$3} else {if($3>3){n7[$1]++ ; sumn7[$1]+=$3} else 
+            script = """'{ names[$1]=$1 ; if($3==0){zero[$1]++} else {nz[$1]++ ; sumnz[$1]+=$3 ;
+              if($3>7){nI[$1]++ ; sumnI[$1]+=$3} else {if($3>3){n7[$1]++ ; sumn7[$1]+=$3} else
               {n3[$1]++ ; sumn3[$1]+=$3} } } } END {
               printf("%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n",
                 "chr","zero","nonzero","sum nz","fract nz","avg nz","avg all",
                 "TotalBC","Bet1-3","sum Bet1-3","Bet4-7","sum Bet4-7","Gtr7","sum Gtr7");
-              for (x in names) { totalbc = zero[x]+nz[x]+1 ; 
+              for (x in names) { totalbc = zero[x]+nz[x]+1 ;
                 printf("%s\\t%d\\t%d\\t%d\\t%f\\t%f\\t%f\\t%d\\t%d\\t%d\\t%d\\t%d\\t%d\\t%d\\n",
                 x,zero[x],nz[x],sumnz[x],nz[x]/totalbc,sumnz[x]/(nz[x]+1),sumnz[x]/totalbc,
                 totalbc-1,n3[x],sumn3[x],n7[x],sumn7[x],nI[x],sumnI[x]) } }'"""
@@ -765,6 +889,7 @@ class BAMFile:
             if self.mapped_avg_read_depth_WES >= 10.0:
                 self.mapped_avg_read_depth_WES = round(self.mapped_avg_read_depth_WES)
             self.coverage_WES              = nonzero_bases_cnt / total_bases
+	'''
 
     def get_bincvg_stats(self, window, scantype="WGS", button_directly=True):
         """
@@ -798,29 +923,31 @@ class BAMFile:
             bamfile = self.file_qFN
 
             # Use BED file if WES scan type.  If Y (or Y and MT) only BAM; use special "Poz" non-exome BED file
-            bedfile = wgse.reflib.get_wes_bed_file_qFN(self.Build, self.SNTypeC, self.Yonly) if scantype == "WES" else ""
-            #cramopts = f'--reference {self.Refgenome_qFN}' if self.file_type == "CRAM" else ""
+            bedfile = wgse.reflib.get_wes_bed_file_qFN(self.Build, self.SNTypeC, self.Yonly) \
+                      if scantype == "WES" else ""
+            # cramopts = f'--reference {self.Refgenome_qFN}' if self.file_type == "CRAM" else ""    # See note below
 
             if bedfile and not check_exists(nativeOS(unquote(bedfile)), 'errNoBEDFile'):
-                # or (cramopts and wgse.reflib.missing_refgenome(self.Refgenome_qFN)):
+               # or wgse.reflib.missing_refgenome(self.Refgenome_qFN, required=self.file_type == "CRAM"):  # See note below
                 return
 
             # Because the depth file is so large; we process it via a pipe and awk; save per chromosome for user perusal
             # Expanded to include buckets 0, 1-3, 4-7, 8+ (inclusive)
-            script = """'{ names[$1]=$1 ; if($3==0){zero[$1]++} else {nz[$1]++ ; sumnz[$1]+=$3 ; 
-              if($3>7){nI[$1]++ ; sumnI[$1]+=$3} else {if($3>3){n7[$1]++ ; sumn7[$1]+=$3} else 
+            script = """'{ names[$1]=$1 ; if($3==0){zero[$1]++} else {nz[$1]++ ; sumnz[$1]+=$3 ;
+              if($3>7){nI[$1]++ ; sumnI[$1]+=$3} else {if($3>3){n7[$1]++ ; sumn7[$1]+=$3} else
               {n3[$1]++ ; sumn3[$1]+=$3} } } } END {
               printf("%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n",
                 "chr","zero","nonzero","sum nz","fract nz","avg nz","avg all",
                 "TotalBC","Bet1-3","sum Bet1-3","Bet4-7","sum Bet4-7","Gtr7","sum Gtr7");
-              for (x in names) { totalbc = zero[x]+nz[x]+1 ; 
+              for (x in names) { totalbc = zero[x]+nz[x]+1 ;
                 printf("%s\\t%d\\t%d\\t%d\\t%f\\t%f\\t%f\\t%d\\t%d\\t%d\\t%d\\t%d\\t%d\\t%d\\n",
                 x,zero[x],nz[x],sumnz[x],nz[x]/totalbc,sumnz[x]/(nz[x]+1),sumnz[x]/totalbc,
                 totalbc-1,n3[x],sumn3[x],n7[x],sumn7[x],nI[x],sumnI[x]) } }'"""
 
             subopts = "-aa" if scantype == "WGS" else f'-a -b {bedfile}'
-            # Per John Bonfield (https://github.com/samtools/samtools/issues/1643#issuecomment-1111133582)
-            # no need for a reference spec when a CRAM file supplied to the samtools depth command.
+
+            # Note: Per John Bonfield (https://github.com/samtools/samtools/issues/1643#issuecomment-1111133582)
+            #       no need for / not allowed a reference spec when a CRAM file supplied to the samtools depth command.
             commands = f'{samtools} depth {subopts} {bamfile} | {awk} {script} > {covfile_qFN}'
 
             run_bash_script("CoverageStatsBIN", commands, parent=window)
@@ -981,6 +1108,7 @@ class BAMFile:
         just the differences and make a single, generic call that adopts to the differences.  Maybe simply extract
         the SN/ID and LN/length fields into separate entry and process that generically?
         """
+        from mainwindow import ask_refgenome
 
         # Determine SN names as given as opposed to relying on reference model to determine
         accession = ["@SQ\tSN:CM0", "@SQ\tSN:CP", "@SQ\tSN:J0", "@SQ\tSN:NC_"]
@@ -988,9 +1116,15 @@ class BAMFile:
                        "Num" if "@SQ\tSN:1\t" in self.Header else \
                        "Acc" if any(x in self.Header for x in accession) else \
                        "Unk"
-        self.SNTypeM = "MT" if "@SQ\tSN:MT" in self.Header or "@SQ\tSN:chrMT" in self.Header else "M"
-        self.SNCount = self.Header.count('@SQ\tSN:')   # Almost sufficient for an analysis model determination
-        DEBUG(f"SN: {self.SNTypeC}, {self.SNTypeM}; SN#:{self.SNCount}")
+
+        self.SNTypeM = "chrMT" if "@SQ\tSN:chrMT\t" in self.Header else \
+                       "MT"    if "@SQ\tSN:MT\t"    in self.Header else \
+                       "chrM"  if "@SQ\tSN:chrM\t"  in self.Header else \
+                       "M"     if "@SQ\tSN:M\t"     in self.Header else \
+                       "Acc"   if "Acc" == self.SNTypeC else "Unk"
+        # Todo, need to extract the accession Mito name and set accordingly
+
+        self.SNCount = self.Header.count('@SQ\tSN:')   # Almost sufficient for a reference model determination
 
         # Possible that header has been shortened if a subset BAM file? So only use chr1, Y and X to check length
         # If only MT or Unmapped (*) in header, then cannot tell RefGenome
@@ -1011,87 +1145,22 @@ class BAMFile:
             self.Build, self.RefMito = (19, "Yoruba")
         # Todo handling RSRS model -- look for spacers?
 
-        DEBUG(f"Build: {self.Build:3d}")
-        DEBUG(f"Ref Genome Mito: {self.RefMito}")
+        DEBUG(f"Build: {self.Build:3d}, Mito: {self.RefMito}; SN#:{self.SNCount}; SN: {self.SNTypeC}, {self.SNTypeM}")
 
-        # New form is based on Major / Class mechanism in Reference Genome study: https://bit.ly/34CO0vj
-        #  Used to rely on SNCount.  But oddball, unrecognized ref genomes in BAMs may have something close set by user.
-        #  So, rely more on key items found in special ref genomes. Keep patching this.  Need to use the MD5sum method.
-        if self.Build == 99:        # Used chr1, chrX or chrY lengths to determine Build99 earlier
-            # Use X and Y length to determine T2T / HPP model
-            if "LN:62456832" in self.Header and "LN:154343774" in self.Header:  # CHM13 v1.1 & HG002 v2 XY
-                self.Refgenome = self.RefgenomeNew = "THGv20"
-            elif "LN:62460029" in self.Header and "LN:154349815" in self.Header:  # CHM13 v1.1 & HG002 v2.7 XY
-                self.Refgenome = self.RefgenomeNew = "THGv27"
-            elif "LN:62480187" in self.Header and "LN:154434329" in self.Header:  # HG01243 v3 PR1 "Puerto Rican"
-                self.Refgenome = self.RefgenomeNew = "THG1243v3"
-            elif "LN:57277415" in self.Header and "LN:154259566" in self.Header:  # CHM13 v1.1 & GRCh38 Y
-                self.Refgenome = self.RefgenomeNew = "HPPv11"
-            elif "LN:57277415" in self.Header and "LN:154259625" in self.Header:  # CHM13 v1 X & GRCh38 Y
-                self.Refgenome = self.RefgenomeNew = "HPPv1"
-            elif "LN:62456832" in self.Header and "LN:156040895" in self.Header:  # GRCh38 w/ HG002 v2 Y  (ySeq)
-                self.Refgenome = self.RefgenomeNew = "THGySeqp"
-            elif "LN:62460029" in self.Header and "LN:154259566" in self.Header:  # CHM13 v1.1 & HG002 v2.7 Y
-                self.Refgenome = self.RefgenomeNew = "T2Tv20"
-            elif "LN:154259566" in self.Header:  # Must be plain CHM13 v1.1 as special Y not found
-                self.Refgenome = self.RefgenomeNew = "T2Tv11"
-            elif "LN:154259625" in self.Header:  # Must be plain CHM13 v1 as special Y not found
-                self.Refgenome = self.RefgenomeNew = "T2Tv10"
-            elif "LN:154259664" in self.Header:  # Must be plain CHM13 v0.9
-                self.Refgenome = self.RefgenomeNew = "T2Tv09"
-            else:  # Think it is T2T / HPP build but cannot recognize Y or X length
-                DEBUG(f'Unrecognized T2T model; no matching X or Y length in BAM to known models.')
-        elif self.SNCount in [85, 86] and "SN:NC_007605" in self.Header:
-            # hs37 class have SN:NC007605 (EBV in Numeric naming) sans human_g1k / GRCh37.primary_assembly models
-            # human_1kg model is 84 and one less SN than hs37.fa.gz; hs37d5 is 86 and one more than hs37 (hs37d5 decoy)
-            self.Refgenome = "hs37d5" if "@SQ\tSN:hs37d5" in self.Header else "hs37"
-            self.RefgenomeNew = "1k37g"
-        elif self.SNCount in [85, 298] and "SN:chrEBV" in self.Header:
-            self.Refgenome = None     # 1KGenome analysis models in NCBI Genbank Archive or UCSC; but not handled yet
-            self.RefgenomeNew = "1k37h"
-        elif self.SNCount == 84:      # human_g1k (if Num), GRCh37.primary_assembly.genome (if Chr)
-            self.Refgenome = "hs37-" if self.SNTypeC == "Num" else \
-                             "GRCh37-" if self.SNTypeC == "Chr" else None
-            self.RefgenomeNew = "1K37g" if self.SNTypeC == "Num" else \
-                                "EBI37h" if self.SNTypeC == "Chr" else None
-        elif self.SNCount in [195, 456, 2580, 2581, 2841, 3366] and \
-             ("SN:chrEBV" in self.Header or "SN:EBV" in self.Header):
-            # hs38DH is 3366 SN count and has SN:HLA- unique; hs38 is 195 and hs38a is 456; all uniquely have chrEBV
-            # hs38d1s is sequencing.com model made by hs38d1 with 22_KI270879v1_alt added
-            self.Refgenome = "hs38DH"  if "SN:chr22_KI270879v1_alt" in self.Header and self.SNCount == 3366 else \
-                             "hs38d1a" if self.SNCount == 2841 else \
-                             "hs38d1s" if self.SNCount == 2581 and "SN:22_KI270879v1_alt" in self.Header else \
-                             "hs38d1"  if self.SNCount == 2580 else \
-                             "hs38a"   if self.SNCount == 456 else \
-                             "hs38"  # if self.SNCount == 195
-            self.RefgenomeNew = "1k38" + ("pg" if self.Refgenome == "hs38d1s" else "h")
-            if self.SNCount == 2580 and \
-               ("M5:a491618313b78cdca84ae9513e4f4844" in self.Header or "Verily" in self.Header):
-                self.Refgenome = "hs38d1v"      # Special Google Verily model; cannot be distinguished without M5 field;
-                self.RefgenomeNew = "1k38ph"    # but has very different m5 signature on each SN than hs38d1
-        elif self.SNCount in [93, 297, 455, 639]:    # SNCounts of 6 hg/ebi models; 2 duplicated
-            # Handle the hg (UCSC) and GRCh (EBI) models here
-            self.Refgenome = "hg" if self.SNTypeC == "Chr" else "GRCh"     # 297 & 639 are Patch 13 GRCh models
-            self.Refgenome += str(self.Build)   # Build already takes into account mito for 19/37 differentiation
-            self.RefgenomeNew = self.Refgenome.replace("GRCh", "EBI") + ("g" if self.SNTypeC == "Chr" else "h")
-        elif self.SNCount == 25:        # T2T models of this size already captured with LN fields above
-            self.Refgenome = "hg37w"   # Odd WGSE v1/2 25 SN hg19 model with EBI primaries
-            self.RefgenomeNew = "EBI37ph"
-        DEBUG(f'Ref Genome: {self.Refgenome}, by New nomenclature: {self.RefgenomeNew}')
+        # Determine reference model from header
+        self.Refgenome, self.RefgenomeNew = wgse.reflib.determine_refmodel(self.Header, self.Build, self.RefMito,
+                                                                           self.SNCount, self.SNTypeC, self.SNTypeM)
 
-        # Using the MD5 on the BAM header, see if we know the refgenome more refined (actual model file); for CRAM
-        # Note: MD5 method requires full WGS header with all FASTA model SNs defined there; not subsetted in header
-        pass  # Todo implement code to lookup MD5Sum on BAM Header of SN & LN fields
-
-        # We give up if still not set, simply ask the user
-        if not self.Refgenome:  # not set yet: and (self.chrom_types["A"] > 1 or self.chrom_types["Y"] > 1):
-            wgse.reflib.ask_reference_genome(inBAM=True)      # Ignore return value as setup self.Refgenome in call
+        # If reference model still not set, simply ask the user
+        if not self.Refgenome and self.Build > 0 and self.SNCount > 0:
+            ask_refgenome(inBAM=True)      # Ignore return value as sets self.Refgenome in call
             DEBUG(f'Ref Genome (User): {self.Refgenome}')
-            # todo ask user to send BAM header so we can get its md5 signature for future runs
+        # else   # BAM header seems to be empty of required @SQ fields. Unaligned BAM?
 
+        # Set reference genome file based on reference genome (code) determined
         self.Refgenome_qFN = wgse.reflib.get_refgenome_qFN(self.Refgenome)
-        tempFN = unquote(self.Refgenome_qFN)
-        DEBUG(f'Ref Genome File: {tempFN}')
+
+        DEBUG(f'Ref Genome File: {unquote(self.Refgenome_qFN)}')
 
     def chrom_types_str(self):
         """
@@ -1103,7 +1172,7 @@ class BAMFile:
         for key, value in self.chrom_types.items():
             if value > 1 and not (key == 'Y' and self.gender == 'Female'):  # Do not show Y on Female
                 count += 1
-                chrom_types_str += (", " if chrom_types_str != "" else "") + wgse.lang.i18n[key]
+                chrom_types_str += (", " if chrom_types_str else "") + wgse.lang.i18n[key]
                 ''' Key values are one of: ("A", "X", "Y", "M", "O", "*"). Single character lookup in language file. '''
         if count == 1:
             chrom_types_str += f' {wgse.lang.i18n["Only"]}'
@@ -1113,47 +1182,62 @@ class BAMFile:
         """ Create string of ref genome, mito genome, and SN Count of BAM / CRAM for stats """
 
         if self.Refgenome:
-            result = self.Refgenome
+            result = self.Refgenome     # Our special short code unique for each refgenome
+        elif self.Build:
+            result = wgse.lang.i18n["Build"] + f' {str(self.Build)}' if self.Build else "?"
+        elif self.Sorted is None:
+            result = wgse.lang.i18n["Unaligned"]
         else:
-            bldstr = f' {str(self.Build)}' if self.Build else ""
-            result = wgse.lang.i18n["Unknown"] + bldstr
-        if self.SNTypeC:
+            result = wgse.lang.i18n["Unknown"]
+
+        if self.SNTypeC and self.SNTypeC != "Unk":
             result += f' ({self.SNTypeC})'
-        if self.RefMito:
-            result += ", " if result else ""
-            result += self.RefMito
+
+        if self.RefMito and self.RefMito != "Unknown":
+            result += (", " if result else "") + self.RefMito
+
         if self.SNCount:
-            result += ", " if result else ""
-            result += f'{self.SNCount} {wgse.lang.i18n["SNs"]}'
+            result += (", " if result else "") + f'{self.SNCount} {wgse.lang.i18n["SNs"]}'
+
         return result
 
     def filestatus_str(self):
         """ Create string of sorted, indexed and file size status of BAM / CRAM for stats """
         result = ""
-        #if self.Sorted:
-        result += ", " if result else ""
-        result += wgse.lang.i18n["Sorted"] if self.Sorted else wgse.lang.i18n["Unsorted"]
-        #if self.Indexed:
-        result += ", " if result else ""
-        result += wgse.lang.i18n["Indexed"] if self.Indexed else wgse.lang.i18n["Unindexed"]
+
+        # if self.Sorted:
+        result += (", " if result else "") + wgse.lang.i18n["Unaligned"] if self.Sorted is None else \
+                                             wgse.lang.i18n["Sorted"] if self.Sorted else \
+                                             wgse.lang.i18n["Unsorted"]
+
+        # if self.Indexed:
+        if self.Sorted is not None:
+            result += (", " if result else "") + \
+                      wgse.lang.i18n["Indexed"] if self.Indexed else wgse.lang.i18n["Unindexed"]
+
         # File size
-        result += ", " if result else ""
-        result += f'{round(self.file_stats.st_size / (10.0 ** 9), 1)} {wgse.lang.i18n["GBs"]}'
+        result += (", " if result else "") + \
+                  f'{round(self.file_stats.st_size / (10.0 ** 9), 1)} {wgse.lang.i18n["GBs"]}'
+
         return result
 
-    def get_chr_name(self,chrtype):
+    def get_chr_name(self, chrtype):
         """ Return chromosome name of "type" (MT or Y) specific to the BAM reference model. """
         if self.SNTypeC == "Chr":
-            chrM = "chrM" if self.SNTypeM == "M" else "chrMT"
+            chrM = self.SNTypeM
             chrY = "chrY"
+
         elif self.SNTypeC == "Num":
-            chrM = "MT" if self.SNTypeM == "MT" else "M"
+            chrM = self.SNTypeM
             chrY = "Y"
+
         elif self.SNTypeC == "Acc":
-            chrM = "M"
+            chrM = "M"  # Is this what we really want to give?
             chrY = "Y"
+
         else:
             chrM = chrY = ""
+
         return chrM if chrtype == "M" else chrY
 
     def check_for_bam_index(self):
@@ -1189,63 +1273,79 @@ class BAMFile:
             newBAM_FBS = self.file_FBS.replace("_T2Tv2", "_hs38")
         else:  # Could not find acceptable name to patch so append the new Refgenome to the current file name.
             newBAM_FBS = f'{self.file_FB}_{new_refgenome}{self.file_FS}'
+
         # Need to place the new file in the Output Directory
         return f'{wgse.outdir.oFP}{newBAM_FBS}'
 
-    def find_FASTQs(self):
+    def find_and_set_FASTQs(self, inRealign=False):
         """
         A special to search for commonly-named FASTQs from vendor.  As a precursor to creating them from the BAM.
         In here as if they are found, will set class variable so they can be used and associated.  Likely will do
         similar for VCF.  Eventually, add "get_" routine like for reference_genome to ask the user. Saves time and
         disk space to reuse. Helpful especially when we start saving and restore BAM library stats.
         """
-        paired = self.ReadType == "Paired"
-        # todo checking dates and sizes
 
-        # First check if names have been set in this BAM class already
-        if self.R1fastq_FN and (not paired or self.R2fastq_FN):
-            if os.path.exists(nativeOS(self.R1fastq_FN)) and (not paired or os.path.exists(nativeOS(self.R2fastq_FN))):
-                return True
+        def check_fastq(fastq):
+            # Note: cannot check modification times do not know order copied from server, etc
+            return fastq and os.path.exists(fastq) and os.path.isfile(fastq) and \
+                   os.path.getsize(fastq) > 200 * 10**6
+
+        paired = self.ReadType == "Paired"
+
+        # First check if name(s) have been set in this BAM class already and the file(s) check out
+        if check_fastq(self.R1fastq_FN) and (not paired or check_fastq(self.R2fastq_FN)):
+            # Already set
+            return True
 
         # First look in output directory and BAM directory for ones we create (our naming convention)
-        if wgse.outdir.FPB and paired:      # Look in Output Directory
-            r1fastq_FN = f'{wgse.outdir.FPB}_R1.fastq.gz'
-            r2fastq_FN = f'{wgse.outdir.FPB}_R2.fastq.gz'
-            if os.path.exists(nativeOS(r1fastq_FN)) and os.path.exists(nativeOS(r2fastq_FN)):
-                self.R1fastq_FN = r1fastq_FN
-                self.R2fastq_FN = r2fastq_FN
-                return True
+        if paired:
+
+            # Look in Output Directory (if set; should always be)
+            if wgse.outdir.FPB:
+                # Check in output directory
+                r1fastq_FN = f'{wgse.outdir.FPB}_R1.fastq.gz'
+                r2fastq_FN = f'{wgse.outdir.FPB}_R2.fastq.gz'
+                if check_fastq(r1fastq_FN) and check_fastq(r2fastq_FN):
+                    self.R1fastq_FN = r1fastq_FN
+                    self.R2fastq_FN = r2fastq_FN
+                    return True
+
+            # check in BAM / CRAM directory (just in case user moved them there)
             r1fastq_FN = f'{self.file_FPB}_R1.fastq.gz'
             r2fastq_FN = f'{self.file_FPB}_R2.fastq.gz'
-            if os.path.exists(nativeOS(r1fastq_FN)) and os.path.exists(nativeOS(r2fastq_FN)):
+            if check_fastq(r1fastq_FN) and check_fastq(r2fastq_FN):
                 self.R1fastq_FN = r1fastq_FN
                 self.R2fastq_FN = r2fastq_FN
                 return True
 
-        if wgse.outdir.FPB and not paired:
-            fastq_FN = f'{wgse.outdir.FPB}.fastq.gz'
-            if os.path.exists(nativeOS(fastq_FN)):
-                self.R1fastq_FN = fastq_FN
-                return True
+        else:       # not Paired
+
+            if wgse.outdir.FPB:
+                fastq_FN = f'{wgse.outdir.FPB}.fastq.gz'
+                if check_fastq(fastq_FN):
+                    self.R1fastq_FN = fastq_FN
+                    return True
+
             fastq_FN = f'{self.file_FPB}.fastq.gz'
-            if os.path.exists(nativeOS(fastq_FN)):
+            if check_fastq(fastq_FN):
                 self.R1fastq_FN = fastq_FN
                 return True
 
+        # Todo Do we need to use FPB or actually splitext(FN)[0] ? Suspect the latter.
         # Now look in BAM directory for common test company names: Nebula Genomics
         if paired:
             r1fastq_FN = f'{self.file_FPB}_1.fq.gz'
             r2fastq_FN = f'{self.file_FPB}_2.fq.gz'
-            if os.path.exists(nativeOS(r1fastq_FN)) and os.path.exists(nativeOS(r2fastq_FN)):
+            if check_fastq(r1fastq_FN) and check_fastq(r2fastq_FN):
                 self.R1fastq_FN = r1fastq_FN
                 self.R2fastq_FN = r2fastq_FN
-                return True  # todo checking dates and sizes
+                return True
 
         # Now look in BAM directory for common test company names: Dante Labs
         if paired:
             r1fastq_FN = f'{self.file_FPB}_SA_L001_R1_001.fastq.gz'
             r2fastq_FN = f'{self.file_FPB}_SA_L001_R2_001.fastq.gz'
-            if os.path.exists(nativeOS(r1fastq_FN)) and os.path.exists(nativeOS(r2fastq_FN)):
+            if check_fastq(r1fastq_FN) and check_fastq(r2fastq_FN):
                 self.R1fastq_FN = r1fastq_FN
                 self.R2fastq_FN = r2fastq_FN
                 return True  # todo checking dates and sizes
@@ -1256,16 +1356,26 @@ class BAMFile:
         if paired:
             r1fastq_FN = f'{self.file_FPB}.1.fq.gz'
             r2fastq_FN = f'{self.file_FPB}.2.fq.gz'
-            if os.path.exists(nativeOS(r1fastq_FN)) and os.path.exists(nativeOS(r2fastq_FN)):
+            if check_fastq(r1fastq_FN) and check_fastq(r2fastq_FN):
                 self.R1fastq_FN = r1fastq_FN
                 self.R2fastq_FN = r2fastq_FN
                 return True  # todo checking dates and sizes
 
         # Now look in BAM directory for common test company names: Full Genomes Corp
 
-        # todo ask the user if they know where they are and let them set.  Implement once fastq_FN stats save happens.
+        if self.R1fastq_FN and (not paired or self.R2fastq_FN):
+            return False        # FASTQ names already set; leave them that way and return that they do not exist
 
-        self.R1fastq_FN = self.R2fastq_FN = None
+        # Set what they should be if creating them here
+        if wgse.outdir:
+            self.R1fastq_FN = f'{wgse.outdir.FPB}_R1.fastq.gz'
+            self.R2fastq_FN = f'{wgse.outdir.FPB}_R2.fastq.gz' if paired else \
+                              f'{wgse.outdir.FPB}.fastq.gz'
+        else:
+            self.R1fastq_FN = f'{self.file_FPB}_R1.fastq.gz'
+            self.R2fastq_FN = f'{self.file_FPB}_R2.fastq.gz' if paired else \
+                              f'{wgse.outdir.FPB}.fastq.gz'
+
         return False
 
     def find_VCFs(self):
@@ -1290,9 +1400,11 @@ class BAMFile:
                 VCFs[f'{wgse.outdir.FPB}_SV.vcf.gz']    = ({'SV'}, {'A', 'X', 'Y', 'M'})
                 VCFs[f'{wgse.outdir.FPB}.vcf.gz']       = ({'unk'}, {'A', 'X', 'Y', 'M'})
 
+            # Todo Do we need to use FPB or actually splitext(FN)[0] ? Suspect the latter.
             # Now look in BAM directory for common test company names that come with their BAMs
             VCFs[f'{self.file_FPB}.filtered.snp.vcf.gz']    = ({'SNP'}, {'A', 'X', 'Y', 'M'})    # Dante Labs
             VCFs[f'{self.file_FPB}.filtered.indel.vcf.gz']  = ({'InDel'}, {'A', 'X', 'Y', 'M'})  # Dante Labs
+            VCFs[f'{self.file_FPB}.snp-indel.genome.vcf.gz'] = ({'SNP', 'InDel'}, {'A', 'X', 'Y', 'M'})  # Sequencing
             VCFs[f'{self.file_FPB}.cnv.vcf.gz']             = ({'CNV'}, {'A', 'X', 'Y', 'M'})  # Dante Labs & Sequencing
             VCFs[f'{self.file_FPB}.sv.vcf.gz']              = ({'SV'}, {'A', 'X', 'Y', 'M'})   # Dante Labs & Sequencing
             VCFs[f'{self.file_FPB}.vcf.gz']                 = ({'SNP', 'InDel'}, {'A', 'X', 'Y', 'M'})  # Nebula & ySeq
@@ -1301,14 +1413,14 @@ class BAMFile:
             VCFs[f'chrY_derived_{self.file_FPB}.vcf.gz']    = ({'SNP'}, {'Y',})                  # ySeq
             VCFs[f'chrY_INDELS_{self.file_FPB}.vcf.gz']     = ({'InDel'}, {'Y',})                # ySeq
             VCFs[f'chrY_novel_SNPs_{self.file_FPB}.vcf.gz'] = ({'SNP'}, {'Y',})                  # ySeq
-            VCFs[f'{self.file_FPB}.snp-indel.genome.vcf.gz'] = ({'SNP', 'InDel'}, {'A', 'X', 'Y', 'M'}) # Sequencing.com
-            VCFs[f'{self.file_FPB}.mito.vcf.gz']            = ({'SNP', 'InDel'}, {'A', 'X', 'Y', 'M'})  # Sequencing.com
+            VCFs[f'{self.file_FPB}.mito.vcf.gz']            = ({'SNP', 'InDel'}, {'A', 'X', 'Y', 'M'})   # Sequencing
             # Full Genomes Corp?
 
             for key, val in VCFs.items():
                 if os.path.exists(nativeOS(key)):
-                    self.VCFs[key] = val
+                    self.VCFs[key] = val        # Only copy the ones added above if they exist
 
+        # Check again if still empty. If so, then ask the user.
         if not (self.VCFs and len(self.VCFs) > 0):
             # todo ask the user if they know where they are and let them set.  Implement once VCF stats save happens.
             pass

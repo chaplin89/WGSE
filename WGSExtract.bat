@@ -5,10 +5,13 @@ REM
 REM License: GNU General Public License v3 or later
 REM A copy of GNU GPL v3 should have been included in this software package in LICENSE.txt.
 
-REM  Need to be in the installation as CWD could be anywhere if called from the GUI or Symlink
-cd /d %~dp0%
+TITLE WGS Extract
 
-echo Starting WGS Extract
+REM  Need to be in the installation as CWD could be anywhere
+set "wgse_FP=%~dp0%"
+cd /d "%wgse_FP%"
 
-python\python program\wgsextract.py
+echo Starting WGS Extract ...
+
+python\python program\wgsextract.py %*
 pause

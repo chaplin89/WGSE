@@ -1,7 +1,15 @@
 #!/usr/bin/env python3
 # coding: utf8
+#
+# WGS Extract main (top-level) moduleto process args, activate settings and other modules, and call GUI
+# Todo allow non-GUI command line operation (once button functions are removed from mainwindow GUI module)
+#
+# Part of the
+# WGS Extract (https://wgse.bio/) system
+#  (stand alone)
+#
 # Copyright (C) 2018-2020 City Farmer
-# Copyright (C) 2020-2022 Randy Harr
+# Copyright (C) 2020-2023 Randy Harr
 #
 # License: GNU General Public License v3 or later
 # A copy of GNU GPL v3 should have been included in this software package in LICENSE.txt.
@@ -29,35 +37,40 @@ def get_arguments():
     from settings import __version__
 
     parser = ArgumentParser(prog='WGSExtract',
-            epilog=("IFor a button to be available, an output directory, input file to process, and stats result "
-                    "(if a BAM/CRAM file) must be known. The first two can come from command line options here or "
-                    "a previous run saved settings. The BAM/CRAM idxstats file must be found in the output directory "
-                    "from a previous run.  If no options are specified, an interactive GUI mode is assumed. BATCH MODE "
-                    "FROM THE COMMAND LINE IS NOT YET IMPLEMENTED."))
+            epilog=("If no options are specified, an interactive GUI mode is assumed. \n"
+                    "BATCH MODE FROM THE COMMAND LINE IS NOT YET IMPLEMENTED."))
 
     # -h, --help is automatic with ArgumentParser
     parser.add_argument("-v", "--version", action='version', version=f'%(prog)s {__version__}')
+
+    # Mutually exclusive arguments (only one of the three can be used; target file to work on)
+    # Not required because can be in stored settings from previous run or simply starting GUI without anything
+    mutex = parser.add_mutually_exclusive_group()
+
+    mutex.add_argument("-B", "--bam",
+            dest="Bamfile", required=False,
+            help="BAM file to load")
+
+    mutex.add_argument("-C", "--cram",
+            dest="Cramfile", required=False,
+            help="CRAM file to load")
+
+    mutex.add_argument("-F", "--fastq", action='append',
+            dest="fastq", required=False, nargs='+',
+            help="FASTQ file(s) to load (two if paired-end)", metavar="FASTQ_FILES")
+
+    mutex.add_argument("-V", "--vcf", action='append',
+            dest="vcf", required=False, nargs='+',
+            help="VCF file(s) to load", metavar="VCF_FILES")
+
+    """    mutex.add_argument("filename",
+            dest="file", required=False,
+            help="File(s) to load")    # Support OS File Explorer file click with a defined extension """
 
     # Really a required button for batch mode; but optional because without any args starts interactive mode
     parser.add_argument("-p", "--process_button",
             dest="button", required=False,
             help="Button you wish to process (required for batch mode)", metavar="BUTTON_TO_CLICK")
-
-    # Mutually exclusive arguments (only one of the three can be used; target file to work on)
-    # Not required because can be in stored settings from previous run
-    mutex = parser.add_mutually_exclusive_group()
-
-    mutex.add_argument("-b", "--bam",
-            dest="Bamfile", required=False,
-            help="BAM file to process")
-
-    mutex.add_argument("-c", "--cram",
-            dest="Cramfile", required=False,
-            help="CRAM file to process")
-
-    mutex.add_argument("-f", "--fastq", action='append',
-            dest="fastq", required=False, nargs='+',
-            help="FASTQ file(s) to process (two if paired-end)", metavar="FASTQ_FILE")
 
     align = parser.add_argument_group('required_alignment_button_args')
 
@@ -70,14 +83,14 @@ def get_arguments():
             dest="refgenome", required=False,
             help="Reference genome file to align to", metavar="REFERENCE_GENOME_FILE")
 
-    # Rest of arguments
+    # Settings
     parser.add_argument("-o", "--output_directory",
             dest="outdir", required=False,
-            help="Folder for all Output files", metavar="OUTPUT_DIRECTORY")
+            help="Folder for all Output files (override)", metavar="OUTPUT_DIRECTORY")
 
     parser.add_argument("-l", "--library",
             dest="reflib", required=False,
-            help="Reference library directory", metavar="REFERENCE_LIBRARY_DIRECTORY")
+            help="Reference library directory (override)", metavar="REFERENCE_LIBRARY_DIRECTORY")
 
     parser.add_argument("-t", "--threads",
             dest="threads", required=False, type=int,
@@ -90,16 +103,19 @@ def get_arguments():
     return parser.parse_args()
 
 
-def wgse_main(module):
+def wgse_main(mode):
     """ WGS Extract main program start as independent task. Gives a direct call. """
     import settings as wgse
     from mainwindow import mainwindow_setup
 
+    # print("Starting WGS Extract ...")  # Put in each startup shell script so appears before any errors
+
     # Start WGSE subsystem with all the main program settings (settings.py)
     #   Used to be a class; now just module to remove an additional layer of naming
-    wgse.init(gui=True)     # Includes all subsystem init calls including mainwindow_init
+    mode_gui = True if mode == "GUI" else False
+    wgse.init(interactive=mode_gui)     # Includes all subsystem init calls including mainwindow_init
 
-    if module == '__main__':
+    if mode_gui:
         # Print explanation to command script window, setup main window, let's go
         print(wgse.lang.i18n["ExplainWhyTerminalWinIsOpen"])
         wgse.window = mainwindow_setup()
@@ -109,11 +125,11 @@ def wgse_main(module):
 # ***************MAIN PROGRAM*******************
 if __name__ == '__main__':
 
-    args = get_arguments()      # Place holder; not implemented yet. Intent is to allow BAM file in command line.
+    # args = get_arguments()      # Place holder; not implemented yet. Intent is to allow BAM / CRAM file in command line.
 
-    # Todo If no args, startup interactive and load tkinter and other modules; otherwise batch mode and process args
+    # Todo If no args, startup interactive; otherwise batch mode and process args
 
-    wgse_main(__name__)
+    wgse_main("GUI")
 
 
 """

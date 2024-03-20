@@ -1,5 +1,11 @@
 # coding: utf8
-# Copyright (C) 2020-2022 Randy Harr
+#
+# Reference Library Class subsystem
+#
+# Part of the
+# WGS Extract (https://wgse.bio/) subsystem
+#
+# Copyright (C) 2020-2023 Randy Harr
 #
 # License: GNU General Public License v3 or later
 # A copy of GNU GPL v3 should have been included in this software package in LICENSE.txt.
@@ -17,17 +23,13 @@
     SQ entries (SN's and lengths found in a BAM header and created from the FA's .dict).  See https://bit.ly/34CO0vj
     for the companion document developed with the work here.
 """
+import csv
 import os.path
-# from tkinter.ttk import Button, Label
-from tkinter import Toplevel, Radiobutton, Label, StringVar
-try:
-    from tkmacosx import Button
-except ImportError:
-    from tkinter import Button
+import shutil
 
-from utilities import DEBUG, nativeOS, is_legal_path, unquote, wgse_message
-from commandprocessor import run_bash_script
 import settings as wgse
+from commandprocessor import run_bash_script
+from utilities import DEBUG, nativeOS, is_legal_path, unquote, wgse_message
 
 
 class ReferenceLibrary:
@@ -38,49 +40,15 @@ class ReferenceLibrary:
     Too much functionality was buried in mainwindow that needed to be pulled out to handle the settings storage and
     restore.  So better to put it into a class here than mainwindow which should be UI focused.
     """
-    
-    # Todo Liftover files: http://hgdownload.soe.ucsc.edu/goldenPath/hg19/liftOver/ and
-    #  https://hgdownload.soe.ucsc.edu/goldenPath/hg38/liftOver/ should be added to reference library
-    #  as should VCF annotations, BED files, etc
 
-    # Todo read in genomes.csv to create this table and more
-    _RefGenome_FBS = {
-        'hg19': "hg19.fa.gz",
-        'hg37': "hg19_yseq.fa.gz",
-        'hg37w': "hg19_WGSE.fa.gz",
-        'hs37-': "human_g1k_v37.fasta.gz",
-        'hs37': "hs37.fa.gz",
-        'hs37d5': "hs37d5.fa.gz",
-        'GRCh37-': "GRCh37.primary_assembly.genome.fa.gz",
-        'GRCh37': "Homo_sapiens.GRCh37.dna.toplevel.fa.gz",
-        "hg38": "hg38.fa.gz",
-        "hs38": "hs38.fa.gz",
-        "hs38a": "hs38a.fna.gz",
-        "hs38d1": "hs38d1.fna.gz",
-        "hs38d1s": "hs38d1s.fa.gz",
-        "hs38d1v": "GRCh38_Verily_v1.genome.fa.gz",
-        "hs38d1a": "hs38d1a.fna.gz",
-        "hs38DH": "hs38DH.fa.gz",
-        "GRCh38": "Homo_sapiens.GRCh38.dna.toplevel.fa.gz",
-        "GRCh38-": "GRCh38.primary_assembly.genome.fa.gz",
-        "THGv27": "hg002xy_v2.7.fasta.gz",
-        "THGv20": "hg002xy_v2.fasta.gz",
-        "HPPv11": "CHM13v11Y.fa.gz",
-        "HPPv1": "CHM13v1Y.fa.gz",
-        "THG1243v3": "hg01243_v3.fna.gz",
-        "THGySeqp": "hg38_CP086569.fasta.gz",
-        "T2Tv20": "chm13v2.0.fa.gz",
-        "T2Tv20a": "GCA_009914755.4.fna.gz",
-        "T2Tv11": "chm13.draft_v1.1.fasta.gz",
-        "T2Tv10": "chm13.draft_v1.0.fasta.gz",
-        "T2Tv09": "chm13.draft_v0.9.fasta.gz",
-        "unknown": "unknown"
-    }
+    # Todo additional Liftover files: http://hgdownload.soe.ucsc.edu/goldenPath/hg19/liftOver/ and
+    #  https://hgdownload.soe.ucsc.edu/goldenPath/hg38/liftOver/ should be added to reference library and defined
+    #  for use as should VCF annotations, BED files, etc
 
     def __init__(self, default_FP):
-        self.valid = False      # If current reference library setting is valid (False if default and does not exist)
-        self.set = None         # If set by settings file or user; default has been overriden
-        self.default_FP = None  # Default Reference Library location FP
+        self.valid = False      # True if current reference library directory exists and has content
+        self.set = None         # True if reflib dir is not default; has been overriden
+        self.default_FP = None  # Default Reference Library location FP (initial call; back to if unset)
         self.FP  = None         # Reference Library File (Directory) Pointer
         self.oFP = None
         self.gen_FP  = None     # (Reference) Genome File (Directory) Pointer
@@ -91,26 +59,56 @@ class ReferenceLibrary:
         self.liftover_chain_oFN = None      # Liftover Chain pointer (currently Build38 -> Build37 only)
         self.askRefgenWindow = None
 
+        # Index to list of each row in genomes.csv file in new dictionary; first two entries of file not there
+        # IMPORTANT: this order defines columns in genomes.csv file and must match it (no column labels in file)
+        # self._sortindex = -2      # Drop first colunn; used only by user editing the genomes.csv file
+        # self._refgenome = -1      # Second column becomes the dictionary key with remaining columns a list entry
+        self._sn_count = 0
+        self._sn_naming = 1
+        self._build = 2
+        self._class = 3
+        self._source = 4
+        self._final_file = 5
+        self._init_file = 6
+        self._url = 7
+        self._menu_cmd = 8
+        self._descr = 9
+        self._md5f = 10
+        self._mdfi = 11
+        self._sizef = 12
+        self._sizei = 13
+
+        # Genomes.csv column definitions in post dictionary creation form (per genome)
+        self._keys = []             # Keys used in dictionaries (complete ordered set from genomes.csv) for convenience
+        self._genomes = {}          # genomes.csv in dictionary form using _refgenome as key into dictionary
+
+        # Lists of genomes to display to the user (more desciptive; composed of multiple _genomes() entries in a string
+        self._askgenomes = {}       # List of genome descriptions to display to user when selecting a ref genome
+        self._availist = []         # List of ref genome descriptionss available at that time for user to select
+        self._revkey = []           # Key into _genomes for corresponding _availist list entry
+
         self.change(default_FP)     # Call Reference Library location Change with Default location (for initial setup)
-        # if not self.FP:           # Default will not exist if installation made with reflib already redirected
-        #     Setting Reference Library default failed; really fatal and should probably exit (raise exception)
-        #     DEBUG(f'***ERROR: Cannot set default Reference Library directory: {default_FP}')
-        #     del self
 
     def change(self, dir_FP):
+        """ Change ther reference library folder location. Used to set initial one if not restored from settings. """
 
-        if not dir_FP or dir_FP == "/" or dir_FP == "C:/" or dir_FP == "/cygdrive/c/":
-            # Directory must not be the root file system (also check for null value early on)
-            if wgse.lang.i18n:         # Only report full issue if wgse.lang setup
+        # Directory must not be the root file system (also check for null value early on)
+        if not dir_FP or not is_legal_path(dir_FP):
+            if wgse.lang.i18n:
                 wgse_message("error", 'InvalidRefLibTitle', True,
                              wgse.lang.i18n['errRefLibPath'].replace("{{DIR}}", dir_FP))
             else:
-                DEBUG(f'***WARNING: Empty path or Root directory Reference Library not allowed: "{dir_FP}"')
-            return
-        elif dir_FP == self.FP:  # No change. Silently return. If initilization, self.FP not set yet
+                DEBUG(f'***ERROR: Reference Library directory path is not valid: "{dir_FP}"')
             return
 
-        dir_FP += '/' if dir_FP[-1] != '/' else ''  # Assure trailing slash; universalOS so always forward slash
+        dir_FP += '/' if dir_FP[-1] != '/' else ''          # Assure trailing slash; universalOS so forward slash
+        if os.path.basename(dir_FP[:-1]) != "reference":    # Always name the directory "reference/" (end of path)
+            dir_FP += "reference/"
+
+        # No change. Silently return
+        if dir_FP == self.FP:
+            return
+
         dir_oFP = nativeOS(dir_FP)
 
         gen_FP  = f'{dir_FP}genomes/'
@@ -118,100 +116,377 @@ class ReferenceLibrary:
         cma_FP = f'{dir_FP}microarray/'
         cma_oFP = nativeOS(cma_FP)
 
-        # Error check before setting class instance values (language not setup if default reference library)
-        self.valid = True
-        if not(is_legal_path(dir_oFP) and os.path.isdir(dir_oFP)):
-            # Simply a bad path (not a directory, does not exist, etc)
-            self.valid = False
-            if wgse.lang.i18n and self.default_FP:
-                wgse_message("error", 'InvalidRefLibTitle', True,
-                             wgse.lang.i18n['errRefLibPath'].replace("{{DIR}}", dir_oFP))
-                return
-            else:
-                # If WGS Extract installed with a .wgsextract reflib setting already redirecting the reflib, then
-                #   the default installation reference/ directory will not exist.  So just issue a warning but
-                #   still proceed as if valid so default is set and GUI operates accordingly.
-                DEBUG(f'***WARNING: Reference Library (default) directory does not exist: "{dir_FP}"')
-        elif not(os.path.isdir(gen_oFP) and os.path.isdir(cma_oFP)):
-            # We hope they have setup a library with content; at minimum, we need our special directories there
-            self.valid = False
-            if wgse.lang.i18n and self.default_FP:
-                wgse_message("warning", 'InvalidRefLibTitle', False, 'errRefLibEmpty')
-            else:
-                DEBUG(f'***WARNING: Reference Library (default) directory exists but is missing content: "{dir_FP}"')
-            # return   # No return; just warning and continue on
+        # Does new reflib directory exist and have content ?
+        valid = os.path.isdir(dir_oFP) and os.path.isdir(gen_oFP) and os.path.isdir(cma_oFP)
 
-        # Now that we have error checked (confirmed) values, go ahead and store in the Class instance
-        if not self.default_FP:                     # If first time initializsing, set the default
+        # Initial setup of Default dir in WGS installation folder (reference/); may not exist if moved in settings
+        if not self.default_FP and not valid:
+            DEBUG(f'***WARNING: the default Reference Library does not exist or is empty (moved?): "{dir_FP}"')
+
+        elif self.default_FP and not valid and not self.valid:
+            if wgse.lang.i18n:
+                wgse_message("error", 'InvalidRefLibTitle', True,
+                             wgse.lang.i18n['errRefLibEmpty'].replace("{{DIR}}", dir_oFP))
+            else:
+                DEBUG(f'***WARNING: Existing and new Reference Library have no content: "{self.FP}" "{dir_FP}"')
+            return
+
+        # Does current reflib setting exist and have content but new one does not? If so, move current content to new
+        if not valid and self.valid:
+
+            # Get the size of the existing reference library; format into a usable string for the user
+            sz = sum(os.path.getsize(os.path.join(dirpath, filename))
+                     for dirpath, dirnames, filenames in os.walk( self.oFP) for filename in filenames)
+            scaled, mod = (sz/10**6, "MB") if sz > 10**6 else (sz/10**3, "KB") if sz > 10**3 else (sz, "")
+            sz_str = f'{scaled:,.0f} {mod}'
+
+            # Query the user to go ahead with the move; if UI and lang setup (must hit OK button)
+            if wgse.lang.i18n:
+                mesg = wgse.lang.i18n['ConfirmationRefLib'].replace(
+                    "{{SIZE}}", sz_str).replace("{{SRC}}", self.FP).replace("{{DST}}", dir_FP)
+                if not wgse_message("okcancel", 'ConfirmationRefLibTitle', True, mesg):
+                    return
+            DEBUG(f'*** WARNING: Moving {sz_str} from folder {self.FP} to {dir_FP}.')
+
+            # Perform the move of the existing reference library to the new location
+            shutil.move(self.oFP, os.path.dirname(dir_oFP[:-1]), copy_function=shutil.copy2)
+
+        # Now that we have error checked (confirmed) values, go ahead and replace values in the Class instance
+        if not self.default_FP:                     # If first time initializsing, then set the default
             self.default_FP = dir_FP
         self.set = dir_FP != self.default_FP        # Meaning set by user or settings; not default
-        self.FP  = dir_FP       ; self.oFP = dir_oFP
-        self.gen_FP  = gen_FP   ; self.gen_oFP = gen_oFP
-        self.cma_FP = cma_FP    ; self.cma_oFP = cma_oFP
-        self.FB = os.path.basename(dir_FP[:-1])  # Trick; remove trailing slash so basename returns directory name
+        self.FP = dir_FP        ;  self.oFP = dir_oFP
+        self.gen_FP = gen_FP    ;  self.gen_oFP = gen_oFP
+        self.cma_FP = cma_FP    ;  self.cma_oFP = cma_oFP
+        self.FB = os.path.basename(dir_FP[:-1])     # Should always be "reference"
+        self.valid = os.path.isdir(dir_oFP) and os.path.isdir(gen_oFP) and os.path.isdir(cma_oFP)
 
         self.liftover_chain_oFN = f'{self.oFP}hg38ToHg19.over.chain.gz'
-        # Todo have chain files for T2T; can we make microarray work by creating T2T chain files then liftover result?
+        # Todo change from static value to method call so can have chain files for multiple liftover directions
 
-        # self.snlookup =
+        self._load_genomes_csv()        # May have changed source of genomes.csv file
 
         DEBUG(f'New Reflib Directory: {self.FP}')
 
-    def get_refgenome_qFN(self, ref_genome):
+    @staticmethod
+    def getmt(oFN):
+        return os.path.getmtime(oFN) if os.path.exists(oFN) and os.path.isfile(oFN) else 0
+
+    def _load_genomes_csv(self):
+        """ Initialize the genomes directory from the genomes.csv file. Create a dictionary of lists.
+            NOTE: genomes.csv has two entries for the PythCode column (i.e. the ref_genome internal unique keyword).
+            The two entries should be identical except for the source name, download URL, Library Menu Label,
+            and (longer) Description. We do not really care about those 2nd entries as we do not use those alt entries
+            in python code.  We call get_refgenomes.sh that reads in genomes.csv itself. Otherwise, we
+            would need to use the sort # field as the unique dictionary key. And then go through the array for
+            each lookup.  For now, we simply overwrite the first entry with the second. The PythCode is then
+            unique to each ref_genome and used as the dictionary key.
+            FURTHER NOTE: genomes.csv is missing most of the patched models (p1-13/14 of EBI 37 / 38). So the
+            reference model for BAMs dependent on those models will still not be found.
         """
-        This simplistic extension of the original does not recognize NCBI models nor minor patch variants
-        It does continue to include the original models (even if in error and should not be used) to aid
-        in conversion back to something useful.
+        # Let's first make sure we have the latest and best genomes.csv file (see zcommon.sh genomes.csv loader also)
+        # Todo check against latent online and use if newer than programseed
+        # Todo because check everytime, do not copy; just use current best in situ; in case user changes local copy
+        programseed = wgse.prog_oFP + 'seed_genomes.csv'        # Now delivered with program package in program/ folder
+        reflibseed = self.oFP + 'seed_genomes.csv'              # Initially delivered in reflib package in reference/
+        genomescsv = self.gen_oFP + 'genomes.csv'               # Only used in reference/genomes/ folder
+
+        programseed_mt = self.getmt(programseed)                # File modified time in program/ folder (if exists)
+        reflibseed_mt = self.getmt(reflibseed)                  # File modified time in reference/ folder (if exists)
+        genomescsv_mt = self.getmt(genomescsv)                  # File modified time in reference/genomes folder
+
+        if reflibseed_mt > genomescsv_mt:
+            shutil.copy2(reflibseed, genomescsv)        # Copy while retaining attributes such as modified time
+            genomescsv_mt = self.getmt(genomescsv)      # Update modified time for reference/genomes/genoms.csv file
+
+        if programseed_mt > genomescsv_mt:
+            shutil.copy2(programseed, genomescsv)
+            genomescsv_mt = self.getmt(genomescsv)           # Update modified time for reference/genomes/genoms.csv file
+
+        if genomescsv_mt == 0:
+            DEBUG(f'*** ERROR No valid genomes.csv file found at {genomescsv}')
+            return 1
+
+        # With latest, valid genomes.csv file, read in content
+        with open(genomescsv) as genomesf:
+            genomes = csv.reader(genomesf)
+            next(genomes)       # Skip first title / comment row
+
+            self._keys = []
+            for genome in genomes:
+                # DEBUG(f'{genome}')
+
+                # Convert "." shortcut in genomes.csv final file name column to have initial file name value
+                # note: working from genomes.csv entry directly before converting to dictionary entry; so +2
+                if genome[self._final_file+2] == '.':
+                    genome[self._final_file+2] = genome[self._init_file+2]
+
+                key = genome[1]     # column 1 is unique and the key into the dictionary
+                cur = genome[2:]    # Skip column 0 (sort order) and column 1 (key); load the rest as list
+
+                # Implementing an ordered set using a list to mimic an ordered dictionary
+                if self._genomes.get(key, "missing") != "missing":      # Remove existing key before adding again
+                    self._keys.remove(key)
+                self._keys += [key]         # This is the list of refgenome codes used inside the program
+                self._genomes[key] = cur    # Note: overwrites same key entries (NIH vs EBI) so ignore init elements
+
+                # Construct the display string to the user for any drop-down menu to select a reference genome
+                #  key: _sn_count, _sn_naming, _build, _class, _source, _final_file, _init_file,
+                #       _url, _library_menu_cmd, _descr, _md5f, _md5i, _sizef, _sizei
+                title = cur[self._menu_cmd].replace(" (*)", "").replace(" 3x", "")  # Clear Library menu items in name
+                if not any(s in cur[self._class] for s in ["hs37h", "hs37fh"]):     # Todo Why not every entry?
+                    title = title.replace(" (NIH)", "").replace(" (EBI)", "")       # Remove model source component
+
+                name = cur[self._sn_naming]
+                mito = "Yoruba" if "Yoruba" in title else "rCRS"
+                sns = cur[self._sn_count]
+
+                self._askgenomes[key] = f'{title:>30}, {name:>5}, {mito:>6}, {int(sns):5,d} SNs'     # 56 char field
+
+        DEBUG(f'Loaded genomes.csv, {len(self._genomes)} entries')
+
+    def refgenome_codes(self):
+        return self._keys
+
+    def available_refgenomes(self, inBAM=True):
+        """ Create a combobox (dropdown list) of possible refgenomes to select from the loaded genoms.csv file.
+            Combobox only takes a list of strings that it displays. It then returns one of those strings as the
+            selected result. So we have to use the constructed dictionary "_askgenomes[]" which has the display
+            strings and the refgenome code as its key. Then use the returned string to look up the key in there.
+            inBam specifies that the list should be trimmed to only those entries that are valid for the BAM
+            settings. We are asking the user to select the closest ref genome to what they see is in the BAM.
+            So impossible matches like wrong chromosome names or major build are trimmed out. And an "Unknown"
+            added so a user can select that as well. Otherwise, the whole list from genomes.csv is returned.
         """
 
-        RefGenomeFBS = self._RefGenome_FBS.get(ref_genome, "unknown")
-        if ref_genome and "unknown" not in [ref_genome, RefGenomeFBS]:
-            return f'"{self.gen_FP}{RefGenomeFBS}"'
+        self._availist = []
+        self._revkey = []
+        for key, genome in self._genomes.items():
+
+            # If inBAM, then prune out genomes that do not match the chr naming and major build of the BAM
+            if inBAM and wgse.BAM and \
+              (genome[self._sn_naming] not in [wgse.BAM.SNTypeC, wgse.BAM.SNTypeM] or
+               wgse.BAM.Build != genome[self._build]):
+                # or genome[self._sn_count] < wgse.BAM.SNCount
+                continue
+
+            # Create list with composed string of each reference genome to use in drop down (and corresponding key)
+            self._availist += [self._askgenomes[key]]
+            self._revkey += [key]
+
+        # For user choosing closest refgenome for BAM, allow selecting "unknown" (add as last entry in dictionary)
+        if inBAM:
+            self._availist += [f'{"Unknown":>24}']
+            self._revkey += ["unknown"]
+
+        return self._availist
+
+    def key_from_availist(self, refstring):
+        """
+        When a user selects a refgenome from the drop down list, we are returned with that entry of the availist array.
+        So use that string to look into the _availlist to get an index back into the _revkey for the refgenome code.
+        """
+
+        # Note: returns "unknown" if so selected; is not a key into _genomes though
+        return next(self._revkey[i] for i, askref in enumerate(self._availist) if askref == refstring)
+
+    def get_refgenome_qFN(self, ref_genome):
+        """  Simple lookup and return of the (final) file name for the reference genome key """
+
+        if ref_genome and ref_genome != "unknown":
+            genome = self._genomes.get(ref_genome, [])
+            if len(genome) > 0:
+                return f'"{self.gen_FP}{genome[self._final_file]}"'
         # else return null
 
-    def missing_refgenome(self, refgenome_qFN, parent=wgse.window):
-        """ Check stored reference genome filename for existing and large enough; report error and give chance to
-        correct if not; return final status. Calling this routine assumes the ref genome is required.  """
-        missing = True      # Default return value
+    def get_refgenome(self, refgenome_qFN):
+        """ Simple reverse lookup to return of the refgenome key given the quoted refgenome final file name """
+        return next(key for key, entry in self._genomes.items()
+                    if refgenome_qFN.endswith(entry[self._final_file] + '"'))
 
-        if not refgenome_qFN:   # Nothing specified; maybe user cancelled specifying; simply return
-            return missing
+    def installed_refgenome(self, ref_genome="", refgenome_qFN=""):
+        installed = True
 
-        refgenome_FN  = unquote(refgenome_qFN)
-        refgenome_oFN = nativeOS(refgenome_FN)
-        refgenome_FBS = os.path.basename(refgenome_FN)
+        if ref_genome and not refgenome_qFN:
+            refgenome_qFN = self.get_refgenome_qFN(ref_genome)
 
-        refgenome = [key for key in self._RefGenome_FBS if self._RefGenome_FBS[key] == refgenome_FBS][0]
+        if not refgenome_qFN:
+            return not installed
 
-        # Also check for the post-process file from our application
-        special = refgenome_oFN.replace("fa.gz", "wgse").replace("fna.gz", "wgse").replace("fasta.gz", "wgse")
+        refgenome_oFN  = nativeOS(unquote(refgenome_qFN))
+        wgse_oFN = refgenome_oFN.replace("fa.gz", "wgse").replace("fna.gz", "wgse").replace("fasta.gz", "wgse")
 
-        # Standard case -- refgenome file found and correct size
-        if os.path.isfile(refgenome_oFN) and os.path.getsize(refgenome_oFN) > 500000000 and \
-           os.path.isfile(special):
+        refgenome_mt = self.getmt(refgenome_oFN)    # Note: returns 0 if file does not exist
+        wgse_mt = self.getmt(wgse_oFN)              # Note: returns 0 if file does not exist
+
+        if not ref_genome:
+            ref_genome = self.get_refgenome(refgenome_qFN)
+        target_size = int(self._genomes[ref_genome][self._sizef])
+
+        # Standard case -- refgenome file found, correct size and processed already
+        if 0 < refgenome_mt < wgse_mt and os.path.getsize(refgenome_oFN) == target_size:
+            return installed
+
+    @staticmethod
+    def determine_refmodel(Header, Build, RefMito, SNCount, SNTypeC, SNTypeM):
+        """
+        Determine the reference model used to create a SAM / BAM / CRAM.  Based on Major / Minor / Class genome study
+        in https://bit.ly/34CO0vj. Used to rely on SNCount.  But oddball, unrecognized ref genomes in BAMs may have
+        same SNcount. So now use key items passed in beside the header. Reference genomes returned here must
+        match those in the first column of seed_genomes.csv and cover all entries completely to have them recognized.
+        Todo finally implement lookup using the MD5Sum of BAM Header SQ fields, Make use of .wgse files created ...
+        Todo when compiling a refgenome. Allow new entries by the user to be recognized and processed here and elsewhere
+        """
+
+        if Build == 99:  # Used chr1, chrX or chrY lengths to determine Build99 earlier
+            # Use X and Y length to determine T2T / HPP model
+            if "LN:62456832" in Header and "LN:154343774" in Header:  # CHM13 v1.1 & HG002 v2 XY
+                Refgenome = RefgenomeNew = "THGv20"
+            elif "LN:62460029" in Header and "LN:154349815" in Header:  # CHM13 v1.1 & HG002 v2.7 XY
+                Refgenome = RefgenomeNew = "THGv27"
+            elif "LN:62480187" in Header and "LN:154434329" in Header:  # HG01243 v3 PR1 "Puerto Rican"
+                Refgenome = RefgenomeNew = "THG1243v3"
+            elif "LN:57227415" in Header and "LN:154259566" in Header:  # CHM13 v1.1 & GRCh38 Y
+                Refgenome = RefgenomeNew = "HPPv11"
+            elif "LN:57227415" in Header and "LN:154259625" in Header:  # CHM13 v1 X & GRCh38 Y
+                Refgenome = RefgenomeNew = "HPPv1"
+            elif "LN:62456832" in Header and "LN:156040895" in Header:  # GRCh38 w/ HG002 v2 Y  (ySeq)
+                Refgenome = RefgenomeNew = "THGySeqp"
+            elif "LN:62460029" in Header and "LN:154259566" in Header:  # CHM13 v1.1 & HG002 v2.7 Y
+                Refgenome = RefgenomeNew = "T2Tv20"
+            elif "LN:154259566" in Header:  # Must be plain CHM13 v1.1 as special Y not found
+                Refgenome = RefgenomeNew = "T2Tv11"
+            elif "LN:154259625" in Header:  # Must be plain CHM13 v1 as special Y not found
+                Refgenome = RefgenomeNew = "T2Tv10"
+            elif "LN:154259664" in Header:  # Must be plain CHM13 v0.9
+                Refgenome = RefgenomeNew = "T2Tv09"
+            else:  # Think it is T2T / HPP build but cannot recognize Y or X length
+                DEBUG(f'Unrecognized T2T / HPP model; no known X and/or Y length in BAM.')
+                Refgenome = RefgenomeNew = None
+            if RefgenomeNew == "T2Tv20" and SNTypeC == "Acc":
+                Refgenome = RefgenomeNew = "T2Tv20a"
+
+        elif SNCount in [85, 86] and Build == 37 and "SN:NC_007605" in Header:
+            # 1k/hs37 class have SN:NC007605 (EBV in Numeric naming) sans human_g1k / GRCh37.primary_assembly models
+            Refgenome = "hs37d5" if "@SQ\tSN:hs37d5" in Header else "hs37g"
+            RefgenomeNew = "1k37" + "g" if SNTypeC == "Num" else "h"
+
+        elif SNCount in [85, 298] and Build == 37 and "SN:chrEBV" in Header and SNTypeC == "Chr":
+            # hs37 class with Chr naming and no / full alt analysis sets (1K models @ Genbank; ChrMT odd at UCSC)
+            Refgenome = "hs37h" if SNCount == 85 else "hs37fh"
+            RefgenomeNew = "1k37h"  # g form does not exist
+            if SNTypeM == "chrMT":
+                # Special exception for UCSC oddball model hg19.p13.plusMT.*_analysis_set.fa.gz
+                Refgenome += "t"
+                RefgenomeNew += "t"
+
+        elif SNCount == 84:  # human_g1k (if Num), GRCh37.primary_assembly.genome (if Chr)
+            Refgenome, RefgenomeNew = \
+                ("hs37-", "1K37g")    if SNTypeC == "Num" else \
+                ("GRCh37-", "EBI37h") if SNTypeC == "Chr" else \
+                (None, None)
+
+        elif SNCount in [195, 456, 2580, 2581, 2841, 3366] and Build == 38 and \
+            ("SN:chrEBV" in Header or "SN:EBV" in Header):
+            # hs38DH is 3366 SN count and has SN:HLA- unique; hs38 is 195 and hs38a is 456; all uniquely have chrEBV
+            # hs38d1s is sequencing.com model made by hs38d1 with 22_KI270879v1_alt added
+            Refgenome, RefgenomeNew = \
+                ("hs38DH", "1k38h")   if SNCount == 3366 and "SN:chr22_KI270879v1_alt" in Header else \
+                ("hs38d1a", "1k38h")  if SNCount == 2841 else \
+                ("hs38d1s", "1k38pg") if SNCount == 2581 and "SN:22_KI270879v1_alt" in Header else \
+                ("hs38d1", "1k38h")   if SNCount == 2580 else \
+                ("hs38a", "1k38h")    if SNCount == 456 else \
+                ("hs38", "1k39h")     if SNCount == 195 else \
+                (None, None)
+
+            if SNCount == 2580 and SNTypeC == "Chr" and \
+                ("M5:a491618313b78cdca84ae9513e4f4844" in Header or "Verily" in Header):
+                Refgenome = "hs38d1v"    # Special Google Verily model; cannot be distinguished without M5 field;
+                RefgenomeNew = "1k38ph"  # has very different m5 signature on each SN than hs38d1
+
+        elif SNCount in [93, 297, 455, 639]:  # SNCounts of 6 hg/ebi models; 2 duplicated
+            # Handle the hg (UCSC) and GRCh (EBI) models here
+            Refgenome = "hg" if SNTypeC == "Chr" else "GRCh"  # 297 & 639 are Patch 13 GRCh models
+            Refgenome += str(Build)  # Build already takes into account mito for 19/37 differentiation
+            RefgenomeNew = Refgenome.replace("GRCh", "EBI") + ("h" if SNTypeC == "Chr" else "g")
+
+        elif SNCount == 194 and Build == 38 and SNTypeC == "Chr":
+            Refgenome = "GRCh38-"
+            RefgenomeNew = "hg38h"
+
+        elif SNCount == 25 and Build == 37 and RefMito == "rCRS":
+            # These oddball models were not found on the internet but are used in some studies deposited on ENA
+            Refgenome, RefgenomeNew = ("hg37ew", "EBI37h") if  SNTypeC == "Chr" and \
+                                                               SNTypeM == "chrM" else \
+                                      ("hg37eht", "1K37ht") if SNTypeC == "Chr" and \
+                                                               SNTypeM == "chrMT" else \
+                                      ("hg37eg", "NCB37g") if  SNTypeC == "Num" and \
+                                                               SNTypeM == "MT" else \
+                                      (None, None)
+
+        else:
+            Refgenome = RefgenomeNew = None
+
+        DEBUG(f'Ref Genome: {Refgenome}, by New nomenclature: {RefgenomeNew}')
+        return Refgenome, RefgenomeNew
+
+    def missing_refgenome(self, refgenome_qFN, required=True, parent=wgse.window, ref_genome=""):
+        """
+        Check if reference genome file exists and is correctsize; give chance to correct if not; otherwise
+        report error if not corrected; return final status. Calling this routine with required=True assumes the
+        ref genome is required. Otherwise simply return not missing without checking. Simplifies BAM vs CRAM checks.
+        """
+        missing = True      # Default return value; simply for clarity below
+
+        if not required:        # Mainly for non-CRAMs. Just return that file is not missing if not required
             return not missing
 
-        # Give user a chance to resolve issue by fetching the missing file; check again after
+        if self.installed_refgenome(ref_genome, refgenome_qFN):
+            return not missing
+
+        if not refgenome_qFN:           # and required (true because returned already if false)
+            refgenome_qFN = self.get_refgenome_qFN(ref_genome)
+            if not refgenome_qFN:       # If cannot determine file; cannot check if missing or not
+                return missing
+
+        refgenome_oFN = nativeOS(unquote(refgenome_qFN))
+        refgenome_FBS = os.path.basename(refgenome_oFN)
+
+        # Know ref genome is missing from the library now and that it is required.  So post pop-up to user and ask
+        # if they want us to (1) download and install for them now, (2) give them the chance to download and install
+        # while the program is paused, or (3) simply cancel the current command.  Return missing if still not there or
+        # cancelled becuase if required and return missing; the caller will then cancel the command.
+
+        # Need to reverse lookup from filename to get refgenome key; simply for error reporting
+        refgenome = [key for key in self._genomes if self._genomes[key][self._final_file] == refgenome_FBS][0]
+        if not refgenome:
+            DEBUG(f'***Internal error: passed in {refgenome_FBS} not found in genomes.csv')
+
+        # Give user a chance to resolve the issue by fetching the missing file (either allow us or they do it)
         message = wgse.lang.i18n["errRefGenFileMissing"]
         message = message.replace("{{FILE}}", refgenome_FBS).replace("{{REFGEN}}", refgenome)
         result = wgse_message("yesnocancel", "errRefGenFileMissingTitle", True, message)
 
-        if result is None:  # User hit Cancel to decline to fix the missing refgenome. Simply return with missing.
+        # User hit Cancel to decline to fix the missing refgenome. Simply return that file is missing.
+        if result is None:
             return missing
 
-        if result:          # User hit Yes to have us to load the missing reference genome for them
-            get_and_process = nativeOS(f'{wgse.install_FP}scripts/get_and_process_refgenome.sh')
-            command = [wgse.bashx_oFN, get_and_process, refgenome_FBS, wgse.prefserver]
+        # User hit Yes to have us load the missing reference genome for them
+        if result:
+            get_refgenomes = nativeOS(f'{wgse.install_FP}scripts/get_refgenomes.sh')
+            # Note: passing file BASE name and suffix as get_refgenome will find the URL in genomes.csv from that
+            command = [wgse.bashx_oFN, get_refgenomes, refgenome_FBS, wgse.prefserver]
             run_bash_script("GenLoadGenome", command, parent=parent, direct=True)
             # The above generates a one line command to execute directly (no temp folder bash script)
-        # else not result: user hit No after running Library.* themself; so hopefully should be available now ...
 
-        # We need to check again in case the refgenome now exists (either we loaded or user did)
-        if os.path.isfile(refgenome_oFN) and os.path.getsize(refgenome_oFN) > 500000000 and \
-           os.path.isfile(special):
+        # User hit No so should have run Library.* command themselves; so hopefully should be available now ...
+        # elif not result:
+
+        # We need to check again in case the refgenome still does not exist ; also check it is processed
+        if self.installed_refgenome(ref_genome, refgenome_qFN):
             return not missing
 
-        # Simply do an error pop-up to let them know the current command will cancel (as the file is still missing)
+        # So an error pop-up to let user know the current command will cancel (as the file is still missing)
         message = wgse.lang.i18n["errRefGenFileStillMissing"]
         message = message.replace("{{FILE}}", refgenome_FBS).replace("{{REFGEN}}", refgenome)
         wgse_message("error", "errRefGenFileMissingTitle", True, message)
@@ -221,18 +496,20 @@ class ReferenceLibrary:
     @staticmethod
     def refgen_liftover(ref_genome):
         """
-        Return companion reference genome name and SN Count from the reference genome name (only) passed in.
+        Return auto-selected Realign button ref. genome name and SN Count from the ref. genome name (only) passed in.
         """
-        # We do not yet support NCBI models directly (the 4th class); we realign draft, early T2T style models to its final
-        return  ("hg37",    93) if ref_genome == "hg38" else \
-                ("hs37d5",  86) if ref_genome in ["hs38", "hs38a", "hs38d1", "hs38d1a", "hs38d1s","hs38DH", "hs38d1v"] else \
-                ("GRCh37", 297) if ref_genome in ["GRCh38", "GRCh38-"] else \
-                ("hg38",   455) if ref_genome in ["hg37", "hg19"] else \
-                ("hs38",   195) if ref_genome in ["hs37d5", "hs37", "hs37-", "T2Tv20"] else \
-                ("GRCh38", 639) if ref_genome in ["GRCh37", "GRCh37="] else \
-                ("T2Tv20",  25) if ref_genome in ["T2Tv11", "T2Tv10", "T2Tv09", "THGySeqp", "THGv27", "THGv20",
-                                                  "THG1243v3", "HPPv11", "HPPv1"] else \
-                ("error", 0)
+        # We realign draft, early T2T style models to the T2T final
+        return ("hg37",    93) if ref_genome == "hg38" else \
+               ("hs37d5",  86) if ref_genome in ["hs38", "hs38a", "hs38d1", "hs38d1a", "hs38d1s",
+                                                 "hs38d1v","hs38DH"] else \
+               ("GRCh37", 297) if ref_genome in ["GRCh38", "GRCh38-"] else \
+               ("hg38",   455) if ref_genome in ["hg37", "hg19", "hg37ew", "hg37eht", "hg37eg"] else \
+               ("hs38",   195) if ref_genome in ["hs37d5", "hs37g", "hs37-", "hs37h", "hs37ht", "hs37fh", "hs37fht",
+                                                 "T2Tv20", "T2Tv20a"] else \
+               ("GRCh38", 639) if ref_genome in ["GRCh37", "GRCh37-"] else \
+               ("T2Tv20",  25) if ref_genome in ["T2Tv11", "T2Tv10", "T2Tv09", "THGySeqp", "THGv27", "THGv20",
+                                                 "THG1243v3", "HPPv11", "HPPv1"] else \
+               ("error", 0)
 
     def get_reference_vcf_qFN(self, build, sqname, type="FullGenome"):
         if type == "Yonly":  # Y-only Variants from yBrowse DB; updated daily.  Thomas Krahn suggest liftover to Build38
@@ -241,7 +518,8 @@ class ReferenceLibrary:
                   "snps_grch38.vcf.gz" if  build == 38 and sqname == "Num" else \
                   "snps_grch37.vcf.gz" if (build == 37 or build == 19) and sqname == "Num" else \
                   "error"  # Unknown
-            return f'"{self.FP}{FBS}"'  # In reference_library; from ybrowse.org
+            return f'"{self.FP}{FBS}"'      # In reference_library; from ybrowse.org
+
         elif type == "Microarray":  # Special list of CombinedKit Variants (union of all generated kits)
             FBS = "All_SNPs_hg38_ref.tab.gz"   if  build == 38 and sqname == "Chr" else \
                   "All_SNPs_hg19_ref.tab.gz"   if (build == 37 or  build == 19) and sqname == "Chr" else \
@@ -249,6 +527,7 @@ class ReferenceLibrary:
                   "All_SNPs_GRCh37_ref.tab.gz" if (build == 37 or  build == 19) and sqname == "Num" else \
                   "error"  # Unknown
             return f'"{self.cma_FP}{FBS}"'  # Found in the Microarray folder
+
         else:  # type == "FullGenome" (use dbSNP)      # Found in reference_library; from https://ftp.ncbi.nlm.nih.gov/snp/latest_release/VCF/
             pass  # not yet implemented nor called; these files are very large. 15GB each or larger. should only be used for annotation
 
@@ -286,7 +565,7 @@ class ReferenceLibrary:
             "38Chr": "CombBED_McDonald_Poznik_Merged_hg38.bed",
             "38Num": "CombBED_McDonald_Poznik_Merged_hg38num.bed"
         }
-        """ymt_only_bed_files = {
+        """y_only_bed_files = {
             "19Chr": "BigY3_hg37.bed", # Todo need to create a unique hg19 with Yoruba BED
             "37Chr": "BigY3_hg37.bed",
             "37Num": "BigY3_hg37num.bed",
@@ -298,200 +577,12 @@ class ReferenceLibrary:
         else:
             return f'"{wgse.reflib.FP}{wes_bed_files.get(str(build) + chrtype,"unknown")}"'
 
-    def ask_reference_genome(self, inBAM=True):
-        """
-        If we cannot figure the reference genome from BAM, ask the user.  Gives them option to say "unknown".
-        Also used when need to ask for a reference genome during general alignment or cannot find a match for realign.
-        Returns a typle of Refgenome code / string and the SN count for that reference
-        """
-        # Todo rework to use genomes.csv file to create radio button table or drop down; disabling ones with SN count
-        #  smaller in ref than BAM here; wrong SN naming convention, etc. Biggest issue is patched models. Only
-        #  latest GRCh models from Ensembl here include patch releases of base models.
-
-        font = wgse.fonts.table if wgse and wgse.fonts else {'14': ("Times New Roman", 14)}
-
-        # mainWindow.withdraw()
-        rbRefgenome = StringVar(wgse.window)
-
-        # Technically, may not be mainwindow that we are forked from; could be anywhere. But have no current window.
-        askRefgenWindow = Toplevel(wgse.window)
-        askRefgenWindow.transient()
-        askRefgenWindow.protocol("WM_DELETE_WINDOW", self.ask_reference_genome_done)
-        askRefgenWindow.title(wgse.lang.i18n['SelectReferenceGenome'])
-        # askRefgenWindow.geometry("")
-        askRefgenWindow.iconbitmap(wgse.icon_oFP) if wgse.os_plat == "Windows" else ''
-        askRefgenWindow.columnconfigure(0, weight=1)
-        askRefgenWindow.rowconfigure(0, weight=1)
-
-        textToDisplay = ""
-        if inBAM:  # Failed trying to determine Reference Genome of BAM; so ask user
-            textToDisplay = wgse.lang.i18n['CouldntDetermineReferenceGenome'].replace("{{RefGen}}", wgse.BAM.refgenome_str())
-            textToDisplay += wgse.lang.i18n['CautionSelectTheCorrectRefGenome'] + '\n'
-
-        textToDisplay += wgse.lang.i18n['PleaseSelectReferenceGenome']
-        Label(askRefgenWindow, text=textToDisplay, font=font['14'],
-              anchor="w", justify="left").grid(column=0, row=0, columnspan=2, padx=5, pady=3)
-        rowcnt = 1
-
-        # Setup series of radio buttons for available reference genomes; disable buttons that clearly cannot
-        #  be (incorrect Build or Chr Name type)
-        rbhs37d5 = Radiobutton(askRefgenWindow, text=wgse.lang.i18n['RefGenomIsHS37D5'], font=font['14'],
-                               indicatoron=False, variable=rbRefgenome, value=("hs37d5", 86))
-        rbhs37d5.grid(column=0, row=rowcnt, padx=5, pady=3)
-
-        rbhs37m = Radiobutton(askRefgenWindow, text=wgse.lang.i18n['RefGenomIsHumanG1k'], font=font['14'],
-                              indicatoron=False, variable=rbRefgenome, value=("hs37-", 84))
-        rbhs37m.grid(column=1, row=rowcnt, padx=5, pady=3)
-        rowcnt += 1
-
-        rbhs38 = Radiobutton(askRefgenWindow, text=wgse.lang.i18n['RefGenomIsHS38'], font=font['14'],
-                             indicatoron=False, variable=rbRefgenome, value=("hs38", 195))
-        rbhs38.grid(column=0, row=rowcnt, padx=5, pady=3)
-
-        rbhs38dh = Radiobutton(askRefgenWindow, text=wgse.lang.i18n['RefGenomIsHS38DH'], font=font['14'],
-                               indicatoron=False, variable=rbRefgenome, value=("hs38DH", 3366))
-        rbhs38dh.grid(column=1, row=rowcnt, padx=5, pady=3)
-        rowcnt += 1
-
-        rbhg37 = Radiobutton(askRefgenWindow, text=wgse.lang.i18n['RefGenomIsHG37'], font=font['14'],
-                             indicatoron=False, variable=rbRefgenome, value=("hg37", 93))
-        rbhg37.grid(column=0, row=rowcnt, padx=5, pady=3)
-
-        rbhg19 = Radiobutton(askRefgenWindow, text=wgse.lang.i18n['RefGenomIsHG19'], font=font['14'],
-                             indicatoron=False, variable=rbRefgenome, value=("hg19", 93))
-        rbhg19.grid(column=1, row=rowcnt, padx=5, pady=3)
-        rowcnt += 1
-
-        rbhg38 = Radiobutton(askRefgenWindow, text=wgse.lang.i18n['RefGenomIsHG38'], font=font['14'],
-                             indicatoron=False, variable=rbRefgenome, value=("hg38", 455))
-        rbhg38.grid(column=0, row=rowcnt, padx=5, pady=3)
-
-        rbhg37wg = Radiobutton(askRefgenWindow, text=wgse.lang.i18n['RefGenomIsHG37wgse'], font=font['14'],
-                               indicatoron=False, variable=rbRefgenome, value=("hg37wg", 25))
-        rbhg37wg.grid(column=1, row=rowcnt, padx=5, pady=3)
-        rowcnt += 1
-
-        rbgrch37 = Radiobutton(askRefgenWindow, text=wgse.lang.i18n['RefGenomIsGRCh37'], font=font['14'],
-                               indicatoron=False, variable=rbRefgenome, value=("GRCh37", 297))
-        rbgrch37.grid(column=0, row=rowcnt, padx=5, pady=3)
-
-        rbgrch38 = Radiobutton(askRefgenWindow, text=wgse.lang.i18n['RefGenomIsGRCh38'], font=font['14'],
-                               indicatoron=False, variable=rbRefgenome, value=("GRCh38", 639))
-        rbgrch38.grid(column=1, row=rowcnt, padx=5, pady=3)
-        rowcnt += 1
-
-        rbt2tv20 = Radiobutton(askRefgenWindow, text=wgse.lang.i18n['RefGenomIsT2Tv20'], font=font['14'],
-                               indicatoron=False, variable=rbRefgenome, value=("T2Tv20", 25))
-        rbt2tv20.grid(column=0, row=rowcnt, padx=5, pady=3)
-
-        rbthg1243v3 = Radiobutton(askRefgenWindow, text=wgse.lang.i18n['RefGenomIsTHG1243v3'], font=font['14'],
-                                  indicatoron=False, variable=rbRefgenome, value=("THG1243v3", 89))
-        rbthg1243v3.grid(column=1, row=rowcnt, padx=5, pady=3)
-        rowcnt += 1
-
-        rbthgv27 = Radiobutton(askRefgenWindow, text=wgse.lang.i18n['RefGenomIsTHGv27'], font=font['14'],
-                               indicatoron=False, variable=rbRefgenome, value=("THGv27", 25))
-        rbthgv27.grid(column=0, row=rowcnt, padx=5, pady=3)
-
-        rbthgv20 = Radiobutton(askRefgenWindow, text=wgse.lang.i18n['RefGenomIsTHGv20'], font=font['14'],
-                               indicatoron=False, variable=rbRefgenome, value=("THGv20", 25))
-        rbthgv20.grid(column=1, row=rowcnt, padx=5, pady=3)
-        rowcnt += 1
-
-        rbhppv11 = Radiobutton(askRefgenWindow, text=wgse.lang.i18n['RefGenomIsHPPv11'], font=font['14'],
-                               indicatoron=False, variable=rbRefgenome, value=("HPPv11", 24))
-        rbhppv11.grid(column=0, row=rowcnt, padx=5, pady=3)
-
-        rbhppv1 = Radiobutton(askRefgenWindow, text=wgse.lang.i18n['RefGenomIsHPPv1'], font=font['14'],
-                              indicatoron=False, variable=rbRefgenome, value=("HPPv1", 24))
-        rbhppv1.grid(column=1, row=rowcnt, padx=5, pady=3)
-        rowcnt += 1
-
-        rbhs38d1 = Radiobutton(askRefgenWindow, text=wgse.lang.i18n['RefGenomIsHS38d1'], font=font['14'],
-                            indicatoron=False, variable=rbRefgenome, value=("hs38d1", 2580))
-        rbhs38d1.grid(column=0, row=rowcnt, padx=5, pady=3)
-
-        rbhs38d1s = Radiobutton(askRefgenWindow, text=wgse.lang.i18n['RefGenomIsHS38d1s'], font=font['14'],
-                                indicatoron=False, variable=rbRefgenome, value=("hs38d1s", 2581))
-        rbhs38d1s.grid(column=1, row=rowcnt, padx=5, pady=3)
-        rowcnt += 1
-
-        if not inBAM:       # Only display if in BAM (cannot select Unknown if in Align command)
-            unknown = Radiobutton(askRefgenWindow, text=wgse.lang.i18n['Unknown'], font=font['14'],
-                                  indicatoron=False, variable=rbRefgenome,
-                                  value=("Unknown", wgse.BAM.SNCount if inBAM else 0))
-            unknown.grid(column=0, row=rowcnt, columnspan=2, padx=5, pady=3)
-            rowcnt += 1
-
-        Button(askRefgenWindow, text=wgse.lang.i18n['Done'], font=font['14'],
-               command=self.ask_reference_genome_done
-               ).grid(column=0, row=rowcnt, columnspan=2, padx=5, pady=3)
-        rowcnt += 1
-
-        # This only applies when asking the user for the refgenome (closest) when we could not figure it out
-        if inBAM:       # Based on what we already know about BAM, disable some obvious choices that it cannot be
-            if not (wgse.BAM.Build == 19 and wgse.BAM.SNTypeC == "Chr"):
-                rbhg19.configure(state='disabled')
-
-            if not (wgse.BAM.Build == 37 and wgse.BAM.SNTypeC == "Num"):
-                rbhs37d5.configure(state='disabled')
-                rbhs37m.configure(state='disabled')
-                rbgrch37.configure(state='disabled')
-
-            if not (wgse.BAM.Build == 37 and wgse.BAM.SNTypeC == "Chr"):
-                rbhg37.configure(state='disabled')
-                rbhg37wg.configure(state='disabled')
-
-            if not (wgse.BAM.Build == 38 and wgse.BAM.SNTypeC == "Num"):
-                rbgrch38.configure(state='disabled')
-                rbhs38d1.configure(state='disabled')
-                rbhs38d1s.configure(state='disabled')
-
-            if not (wgse.BAM.Build == 38 and wgse.BAM.SNTypeC == "Chr"):
-                rbhs38.configure(state='disabled')
-                rbhs38dh.configure(state='disabled')
-                rbhg38.configure(state='disabled')
-
-            if not (wgse.BAM.SNTypeC == "Num"):
-                rbthgv27.configure(state="disabled")
-                rbthgv20.configure(state="disabled")
-                rbhppv11.configure(state="disabled")
-                rbhppv1.configure(state="disabled")
-        else:
-            rbgrch37.configure(state='disabled')    # BWA Index is not working on EBI GRCh models so disable
-            rbgrch38.configure(state='disabled')
-
-        self.askRefgenWindow = askRefgenWindow
-        askRefgenWindow.update()
-        askRefgenWindow.grab_set()  # ala mainloop for Toplevel, transient windows
-        askRefgenWindow.wait_window()
-
-        # If hit "x' to close window or Done without selecting, then string variable is empty
-        refgenome, snCnt = rbRefgenome.get().split() if rbRefgenome.get() else ("Unknown", 0)
-        if inBAM:     # Store result in BAM class settings
-            wgse.BAM.Refgenome = refgenome
-            # wgse.BAM.SNCount = snCnt  # BAM file has its actual SN Count stored which may be different
-            if wgse.BAM.Refgenome == "Unknown":
-                wgse.BAM.Refgenome = None   # We tried everything; leave it unknown (None)
-            if not wgse.BAM.RefMito:
-                wgse.BAM.RefMito = "Yoruba" if wgse.BAM.Refgenome == "hg19" else \
-                                   "rCRS" if wgse.BAM.Refgenome else \
-                                   None
-            wgse.BAM.RefgenomeNew = None  # Todo How to set up new refgenome after the fact?
-        return refgenome, snCnt
-
-    def ask_reference_genome_done(self):
-        try:
-            self.askRefgenWindow.destroy()
-        except:
-            pass
-
 
 # The rest of this file defines a stand-alone application to process the Final Assembly Reference Genome files
 #
 #  A Final Assembly (FA) Human Reference Genome Processor to create keys to match to SAM/BAM/CRAM file header
 #  Used to create table to figure out what FA file was used to create a BAM; that can then be used for CRAM, etc
-#  FA Files are compressed in BGZF format. As we will only read, we can use standard ZIP readers.
+#  FA Files are compressed in BGZF format. As we will only read, we can use standard gzip readers.
 #  Historically, .fa/.fna/.fasta files have .gz suffix if compressed; none if plain text
 #  Sometimes, marked .gz or otherwise compressed files use .zip and not .bgz (aliased as .gz)
 #
@@ -609,177 +700,3 @@ if __name__ == '__main__':
     # PySAM solution -- part of Bioconda; uses cython and htslib library to give Samtools.BCFtools direct access
     # But install requires C compiler; so not likely sustainable on Win10 where Bioconda not available.
 '''
-################################################################################################################
-# Reference Tables
-#
-#  Really need to be moved to external files and thus maintained independently of this code. None currently used anyway!
-#
-# Key table of reference genomes (AUTO GENERATED FROM ABOVE CODE -- DO NOT EDIT DIRECTLY)
-#  BAMHeader MD5 Sum: Jon Rhys MD5Sum of the SQ records in the header; used as key to entry here. Taken from SN and Len
-#  Generic Model: HG19/38 has chr1-chr22 names, GRCh37/38 has 1-22 names
-#  Mito Model: Which mitochondrial reference model is used (should be able to detect but just for documentation here)
-#  File Name: The local file name of the model to supply to the tools (FBS form)
-#  File Size:
-#  URL:  The URL to do a wget/curl to get the file
-#  RefGenFile MD5 Sum: MD5Sum of actual reference genome file name (to validate download copy)
-reference_genomes = {
-'ee4efe40ebd6f9468dab89963dcc5b65': ['hg19',	'hg19',	'Yoruba',	'hg19.fa.gz',	'948,731 KB', '',	'806c02398f5ac5da8ffd6da2d1d5d1a9'],
-'eed540239f34de0b80734add1779cb5b': ['hg19',	'hg19',	'Yoruba',	'hg19.p13.plusMT.fa.gz',	'979,165 KB', '',	'7707462fc100c7d987c075bc146b16ae'],
-'8ed6919c076595f09e1028325dc86fbe': ['hg19',	'hg19',	'rCRS',	'hg19.p13.plusMT.full_analysis_set.fa.gz',	'900,428 KB', '',	'68ba6e8b063e46bbf2eff013d8becadf'],
-'5a923ccfc7ee30aebe864817653d41d8': ['hg19',	'hg19',	'rCRS',	'hg19.p13.plusMT.no_alt_analysis_set.fa.gz',	'863,259 KB', '',	'd8cae8ef0f24723a31f224ec9a74f874'],
-'9b3bf038da5fef087723525d5174f0bd': ['hg19',	'hg19',	'rCRS',	'hg19_yseq.fa.gz',	'970,288 KB', '',	'09570164f73fbe82a30428fbfdeb4e44'],
-'50093bf43ed53848c9c7696752e65c2f': ['hg19',	'hg19',	'rCRS',	'hg19_wgse.fa.gz',	'881,223 KB', '',	'4edc36f1c0c7b854d48853197cb7dd1e'],
-'bd894134bddba260df88a90123a2ee9c': ['hg38',	'hg38',	'rCRS',	'hg38.fa.gz',	'983,659 KB', '',	'1c9dcaddfa41027f17cd8f7a82c7293b'],
-'f5abbfc73ccdb2e8356003d230bce0ce': ['hg38',	'hg38',	'rCRS',	'hg38p12.fa.gz',	'998,672 KB', '',	'242559a5aac0e1720a6c3396674f36ad'],
-#                                                                'human_g1k_v37.fasta.gz'
-'88b5f4bbaaec4a097b3aa160bf776093': ['GRCh37',	'GRCh37',	'rCRS',	'human_g1k_v37_WGSE.fasta.gz',	'882,999 KB', '',	'd3328225a911adcf3593e81721793819'],
-#                                                                'hs37d5.fa.gz'
-'92c90b84dac3d9d8402bf2f2dbe95961': ['hs37d5',	'GRCh37',	'rCRS',	'hs37d5.fa.gz',	'892,326 KB', '',	'd10eebe06c0dbbcb04253e3294d63efc'],
-'f8812b68f2aa4aa592e742e081f82807': ['GRCh37',	'GRCh37',	'rCRS',	'Homo_sapiens.GRCh37.latest.dna.toplevel.fa.gz',	'993,582 KB', '',	'a4803af89b6c7a9a0db87aa9f8e73461'],
-'abf297943fca66859d781349e8e28687': ['GRCh38',	'GRCh38',	'rCRS',	'Homo_sapiens.GRCh38.99.dna.toplevel.fa.gz',	'1.10765e+06 KB', '',	'ae85c8481141a9399ec7576ad6b0e259'],
-'5c38f3f6774ece1a75c4d5d55010ced7': ['hg19',	'hg19',	'rCRS',	'GRCh37.p13.genome.fa.gz',	'804,606 KB', '',	'490904ef2561472d0801c704ffc85761'],
-'a08daf6f9f22170759705fd99e471b62': ['hg38',	'hg38',	'rCRS',	'GRCh38_full_analysis_set_plus_decoy_hla.fa.gz',	'918,931 KB', '',	'9513ce08c458ac88f8411dcf01097a1f'],
-'42c06a6446741565da8cae7bbeb67184': ['hg38',	'hg38',	'rCRS',	'GRCh38.p13.genome.fa.gz',	'889,409 KB', '',	'1b4b49100b0df70e097a4ab9f4db8b70'],
-'236b4fa639deaaa51691eb16ea92a0f9': ['hg19',	'hg19',	'rCRS',	'GCA_000001405.14_GRCh37.p13_full_analysis_set.fna.gz',	'900,426 KB', '',	'9a705a08e567abbcfd6bfc7a0c6d87cd'],
-'0b94854439441bc45d1b061eedb2ac0e': ['hg19',	'hg19',	'rCRS',	'GCA_000001405.14_GRCh37.p13_no_alt_analysis_set.fna.gz',	'863,259 KB', '',	'21e7083e341404f752682e3b289ba454'],
-'53f744f1771eabfded06778564b931bc': ['hg38',	'hg38',	'rCRS',	'GCA_000001405.15_GRCh38_full_analysis_set.fna.gz',	'903,027 KB', '',	'92d3088bc1c97478c37c2e13b620d50c'],
-#                                                               'GCA_000001405.15_GRCh38_full_plus_hs38d1_analysis_set.fna.gz'
-'c9ef5f042a951d511567dd4ea9bd126e': ['hg38',	'hg38',	'rCRS',	'GCA_000001405.15_GRCh38_no_alt_analysis_set.fna.gz',	'872,950 KB', '',	'a08035b6a6e31780e96a34008ff21bd6'],
-'ee77d771adff64d7ee6357316ee24b6b': ['hg38',	'hg38',	'rCRS',	'GCA_000001405.15_GRCh38_no_alt_plus_hs38d1_analysis_set.fna.gz',	'874,638 KB', '',	'a056c57649f3c9964c68aead3849bbf8']
-}
-
-
-# New approach.  Use SN count instead of MD5 on SN and LN fields in BAM header. Seems possibly more robust / reliable.
-# This after discovering the simple approach of model identification via Chr1 LN and SN name (with/out chr prepend) is
-# not accurate to determine the model type.  GCA_000*fna.gz has "chrNN" but is labeled in v2 as GRCh38.
-# In python if multiple dictionary entries with the same key are specified, only the last is saved.  We have avoided
-# doing a double level dictionary for the few duplicate keys there are.  May be an issue later and cause is to
-# readdress using the MD5 solution key solution.
-refgen_new = {
-     25: [True,  "hg19_WGSEv2.fa.gz", "chrM"],  # WGSE v2 hg19  (really in error, is primary only)
-     84: [True,  "human_g1k_v37.fasta.gz", "MT"],  # WGSE v2 GRCh37 (base 1K Genome analysis model)
-     85: [False, "GCA_000001405.14_GRCh37.p13_no_alt_analysis_set.fna.gz", "chrM"],  # aka hs38.fa.gz, build 37 patch 13
-     86: [True,  "hs37d5.fa.gz", "MT"],  # WGSE v2 hs37d5
-     93: [False, "hg19.fa.gz", "chrM"],  # TRUE hg19 file (not Marko's WGSEv2 short one), no patches, Yoruba (only one)
-    195: [True,  "GCA_000001405.15_GRCh38_no_alt_analysis_set.fna.gz", "chrM"],  # WGSE v2 GRCh38 ; aka hs38.fa.gz
-    297: [False, "Homo_sapiens.GRCh37.75.dna.toplevel.fa.gz", "MT"], # EBI Ensemble release 75 (Build 37, patch 13)
-#   297: [False, "GRCh37.p13.genome.fa.gz", "chrM"],
-    298: [False, "GCA_000001405.14_GRCh37.p13_full_analysis_set.fna.gz", "chrM"], # 1K Genome Build 37 patch 13
-    389: [False, "Homo_sapiens.GRCh38.89.dna.toplevel.fa.gz", "MT"],  # EBI/Ensemble release 89 (patch 2?)
-    455: [False, "hg38.fa.gz", "chrM"],  # Initial model, no patches
-    456: [False, "GCA_000001405.15_GRCh38_full_analysis_set.fna.gz", "chrM"],  # Companion to 195
-    524: [False, "Homo_sapiens.GRCh38.86.dna.toplevel.fa.gz", "MT"],  # EBI/Ensemble 86/87 (original and patch 1)
-    555: [False, "Homo_sapiens.GRCh38.91i.dna.toplevel.fa.gz", "MT"],  # EBI/Ensemble 91i; 90i, 88 also same count
-    593: [False, "Homo_sapiens.GRCh38.97i.dna.toplevel.fa.gz", "MT"],  # EBI/Ensemble 97i; 96i-92i also same count
-    595: [True,  "hg38p12.fa.gz", "chrM"],  # WGSE v2 hg38  (Full Analysis Set, patch 12)
-    639: [False, "Homo_sapiens.GRCh38.current_fasta.dna.toplevel.fa.gz", "MT"], # EBI/Ensemble aka 100i; 99i and 98i
-#   639: [False, "GRCh38.p13.genome.fa.gz", "CHRM"], # Note: unique upcase CHRM nomenclature
-   2580: [False, "GCA_000001405.15_GRCh38_no_alt_plus_hs38d1_analysis_set.fna.gz", "chrM"],  # hs38DH no alt
-   2841: [False, "GCA_000001405.15_GRCh38_full_plus_hs38d1_analysis_set.fna.gz", "chrM"],  # hs38DH Full
-   3366: [False, "GRCh38_full_analysis_set_plus_decoy_hla.fa.gz", "chrM"]  # Full Analysis Set plus decoy HLA
-}
-
-
-# This is a HAND-CRAFTED seed table of URLs for specific local files. Local file name is dictionary key.
-# Note: the original file name may conflict (non-unique) and have to be renamed.  Also may not be compressed or .zip compressed.
-refgen_SeedSource = {
-#   Key (Local FN)   Description           Primary URL                 Secondary URL                   Tertiary URL
-    'hg19.fa.gz':
-        ['UCSC HGP HG19 Original Release (Nov 2009)',
-         'ftp://hgdownload.soe.ucsc.edu/goldenPath/hg19/bigZips/hg19.fa.gz', '', ''],
-    'hg19.p13.plusMT.fa.gz':
-        ['UCSC HGP HG19 Patch 13 (Jan 2020) (latest)',
-         'ftp://hgdownload.soe.ucsc.edu/goldenPath/hg19/bigZips/p13.plusMT/hg19.p13.plusMT.fa.gz', '', ''],
-    'hg19.p13.plusMT.full_analysis_set.fa.gz':
-        ['UCSC HGP HG19 Path13 Full Analysis)',
-         'ftp://hgdownload.soe.ucsc.edu/goldenPath/hg19/bigZips/analysisSet/hg19.p13.plusMT.full_analysis_set.fa.gz',
-         '', ''],
-    'hg19.p13.plusMT.no_alt_analysis_set.fa.gz':
-        ['UCSC HGP HG19 Patch 13 No Alt Analysis',
-         'ftp://hgdownload.soe.ucsc.edu/goldenPath/hg19/bigZips/p13.plusMT/hg19.p13.plusMT.fa.gz', '', ''],
-    'hg19_yseq.fa.gz':
-        ['UCSC HGP HG19 version? (ySeq.net disto)',
-         '', '', ''],
-    'hg19_wgse.fa.gz':
-        ['UCSC HGP HG19 version? (WGSE v2 disto)',
-         'WGSE', '', ''],
-    'hg38.fa.gz':
-       ['UCSC HGP HG38 Original Release',
-        'ftp://hgdownload.cse.ucsc.edu/goldenPath/hg38/bigZips/hg38.fa.gz', '', ''],
-    'hg38p12.fa.gz':
-        ['UCSC HGP HG38 Path 12 (Aug 2018) (latest)',
-         'https://hgdownload.soe.ucsc.edu/goldenPath/hg38/bigZips/latest/hg38.fa.gz', '', ''],
-    'hg38_yseq.fa.gz':
-        ['UCSC HGP HG38 version? (ySeq.net disto)',
-         '', '', ''],
-    'hg38_wgse.fa.gz':
-        ['UCSC HGP HG38 version? (WGSE v2 disto)',
-         'WGSE', '', ''],
-#    'human_g1k_v37.fasta.gz':              # line 411, gzip.py, OSError: Not a gzipped file (b'\x01w') (deep)
-#        ['1K Genome Project Phase 1 GRCh37',
-#         'ftp://ftp-trace.ncbi.nih.gov/1000genomes/ftp/technical/reference/human_g1k_v37.fasta.gz', '', ''],
-    'human_g1k_v37_WGSE.fasta.gz':
-        ['1KGenome Project Phase 1 GRCh37 (WGSE v2 disto)',
-         'WGSE', '', ''],
-#    'hs37d5.fa.gz':                        # line 411, gzip.py, OSError: Not a gzipped file (b'\x01') (deep)
-#        ['1K Genomes hs37d5 (ncbi)',
-#         'ftp://ftp-trace.ncbi.nih.gov/1000genomes/ftp/technical/reference/phase2_reference_assembly_sequence/hs37d5.fa.gz',
-#         '', ''],
-    'hs37d5_unknown_source.fa.gz':
-        ['1K Genomes hs37d5 (unknown source)',
-         '', '', ''],
-    'hs37d5_WGSE.fa.gz':
-        ['1K Genomes hs37d5 (WGSE v2 disto)',
-         'WGSE', '', ''],
-    'Homo_sapiens.GRCh37.latest.dna.toplevel.fa.gz':
-        ['EBI/Ensemble GRCh37 (latest) (Genbank GCA_1405.14)',
-         'ftp://ftp.ensembl.org/pub/grch37/current/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.dna.toplevel.fa.gz', '', ''],
-    'Homo_sapiens.GRCh37.75.dna.toplevel.fa.gz':
-        ['EBI/Ensemble GRCh37 p13 (release 75) (Genbank GCA_1405.14)',
-         'ftp://ftp.ensembl.org/pub/release-75/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.75.dna.toplevel.fa.gz', '', ''],
-    'Homo_sapiens.GRCh38.99.dna.toplevel.fa.gz':
-        ['EBI/Ensemble GRCh38 p13 (release 99) (Genbank GCA_1405.28)',
-         'ftp://ftp.ensembl.org/pub/release-99/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.toplevel.fa.gz', '', ''],
-    'GRCh37.p13.genome.fa.gz':
-        ['',
-         'http://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_19/GRCh37.p13.genome.fa.gz', '', ''],
-    'GRCh38_full_analysis_set_plus_decoy_hla.fa.gz':
-        ['1KGenome Project Phase 3 GRCh38 Full Analysis plus decoy hla (Jul2015)',
-         'ftp://ftp-trace.ncbi.nih.gov/1000genomes/ftp/technical/reference/GRCh38_reference_genome/GRCh38_full_analysis_set_plus_decoy_hla.fa',
-         '', ''],
-    'GRCh38.p13.genome.fa.gz':
-        ['EBI/Ensemble 1KGenome GRCh38 patch 13 (Gencode release 33, Ensemble 99) (Jan2020)',
-         'http://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_33/GRCh38.p13.genome.fa.gz', '', ''],
-    'GRCh38.p13.Rel32.fa.gz':
-        ['EBI/Ensemble 1KGenome GRCh38 patch 13 (Gencode release 32, Ensemble 99)',
-         'http://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_32/GRCh38.p13.genome.fa.gz', '', ''],
-    'GCA_000001405.14_GRCh37.p13_full_analysis_set.fna.gz':
-        ['NCBI GenCode GRCh37 Patch 13 Full Analysis (GCA_1405.14)',
-         'ftp://ftp.ncbi.nlm.nih.gov/genomes/archive/old_genbank/Eukaryotes/vertebrates_mammals/Homo_sapiens/GRCh37.p13/seqs_for_alignment_pipelines/GCA_000001405.14_GRCh37.p13_full_analysis_set.fna.gz',
-         '', ''],
-    'GCA_000001405.14_GRCh37.p13_no_alt_analysis_set.fna.gz':
-        ['NCBI GenCode GRCh37 Patch 13 No Alt Analysis (GCA_1405.14)',
-         'ftp://ftp.ncbi.nlm.nih.gov/genomes/archive/old_genbank/Eukaryotes/vertebrates_mammals/Homo_sapiens/GRCh37.p13/seqs_for_alignment_pipelines/GCA_000001405.14_GRCh37.p13_no_alt_analysis_set.fna.gz',
-         '', ''],
-    'GCA_000001405.15_GRCh38_full_analysis_set.fna.gz':
-        ['NCBI GenCode GRCh38 Full Analysis (GCA_1405.15)',
-         'ftp://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/001/405/GCA_000001405.15_GRCh38/seqs_for_alignment_pipelines.ucsc_ids/GCA_000001405.15_GRCh38_full_analysis_set.fna.gz',
-         '', ''],
-#    'GCA_000001405.15_GRCh38_full_plus_hs38d1_analysis_set.fna.gz':    # File "gzip.py", line 482, EOFError: Compressed file ended before the end-of-stream marker was reached
-#        ['NCBI GenCode GRCh38 Full Analysis plus HS38D1 (GCA_1405.15)',
-#         'ftp://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/001/405/GCA_000001405.15_GRCh38/seqs_for_alignment_pipelines.ucsc_ids/GCA_000001405.15_GRCh38_full_plus_hs38d1_analysis_set.fna.gz',
-#         '', ''],
-    'GCA_000001405.15_GRCh38_no_alt_analysis_set_WGSE.fna.gz':
-        ['NCBI GenCode GRCh38 No Alt (WGSE v2 disto)',
-         'WGSE', '', ''],
-    'GCA_000001405.15_GRCh38_no_alt_analysis_set.fna.gz':
-        ['NCBI GenCode GRCh38 No Alt Analysis (GCA_1405.15)',
-         'ftp://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/001/405/GCA_000001405.15_GRCh38/seqs_for_alignment_pipelines.ucsc_ids/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna.gz',
-         '', '']
-#    'GCA_000001405.15_GRCh38_no_alt_plus_hs38d1_analysis_set.fna.gz':  # File "C:\Program Files\JetBrains\PyCharm Community Edition 2019.3.4\plugins\python-ce\helpers\pydev\pydevd.py", line 1434, in _exec
-#        ['NCBI GenCode GRCh38 No Alt Analysis plus HS38D1 (GCA_1405.15)',
-#         'ftp://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/001/405/GCA_000001405.15_GRCh38/seqs_for_alignment_pipelines.ucsc_ids/GCA_000001405.15_GRCh38_no_alt_plus_hs38d1_analysis_set.fna,gz',
-#         '', '']
-}
-
-
