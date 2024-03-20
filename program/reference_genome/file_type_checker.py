@@ -14,6 +14,7 @@ class Type(enum.Enum):
     DECOMPRESSED = 6
 
 class FileTypeChecker:
+    
     _EXT_TO_TYPE = {
         ".7z": Type.SEVENZIP,
         ".zip": Type.ZIP,
@@ -36,11 +37,18 @@ class FileTypeChecker:
         self._samtools = samtools
 
     def get_type(self, file: Path) -> Type | None:
+        """Get a Type starting from a file path.
+
+        Args:
+            file (Path): Path of the file to analyze.
+
+        Returns:
+            Type | None: Type or None if the type is unknown.
+        """
         # Extensions can be wrong or misleading; Use htsfile and
         # eventually fallback on extension.
 
         file_type = self._samtools.get_file_type(file)
-        logging.debug(f"htsfile returned {file_type}.")
         for key in FileTypeChecker._HTSFILE_TO_TYPE.keys():
             if key in file_type:
                 return FileTypeChecker._HTSFILE_TO_TYPE[key]

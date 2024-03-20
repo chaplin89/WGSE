@@ -13,8 +13,8 @@ class Compressor:
 
     def compress(self, genome: Genome):
         try:
-            target = self.determine_target_name(genome.file)
-            self._samtools.bgzip_compress(genome.file, target)
+            target = self.determine_target_name(genome.initial_name)
+            self._samtools.bgzip_compress(genome.initial_name, target)
         except:
             if target.exists():
                 target.unlink()

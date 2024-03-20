@@ -63,15 +63,15 @@ class Decompressor:
             FileNotFoundError: Input compressed genome file is not found.
             RuntimeError: Extension is not recognized.
         """
-        if not genome.file.exists():
+        if not genome.initial_name.exists():
             raise FileNotFoundError(
-                f"Unable to find reference genome file {genome.file} to decompress."
+                f"Unable to find reference genome file {genome.initial_name} to decompress."
             )
-        type = self._type_checker.get_type(genome.file)
+        type = self._type_checker.get_type(genome.initial_name)
         if type not in self.handlers:
             raise RuntimeError(
-                f"Trying to decompress a reference genome file with an unknown file extension: {genome.file}"
+                f"Trying to decompress a reference genome file with an unknown file extension: {genome.initial_name}"
             )
         
         handler = self.handlers[type]
-        return handler(self, genome.file)
+        return handler(self, genome.initial_name)

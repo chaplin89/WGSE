@@ -14,7 +14,7 @@ _STRING_TO_SOURCE = {
     "EBI-Alt": Source.EBI_ALT,
     "UCSC": Source.UCSC,
     "YSEQ": Source.YSEQ,
-    "GOOG": Source.GOOG,
+    "GOOG": Source.GOOGLE,
     "WGSE": Source.WGSE,
 }
 
@@ -84,8 +84,10 @@ class CsvMetadataLoader:
                 genome_.sn_count = row[CsvFields.SN_COUNT]
                 genome_.sn_naming = row[CsvFields.SN_NAMING]
                 genome_.description = row[CsvFields.DESCRIPTION]
-                initial_name = Path(row[CsvFields.INITIAL_NAME])
-                genome_.file = Path(genome_.code + "_" + genome_.source.name + "".join(initial_name.suffixes))
+                genome_.final_name = row[CsvFields.FINAL_NAME]
+                genome_.initial_name = Path(row[CsvFields.INITIAL_NAME])
+                genome_.file = Path(genome_.code + "_" + genome_.source.name + "".join(genome_.initial_name.suffixes))
+                
                 genomes.append(genome_)
             return meta, genomes
 
@@ -108,13 +110,13 @@ class CsvMetadataLoader:
         if source is not None:
             filtered = [x for x in filtered if x.source == source]
         if file_name is not None:
-            filtered = [x for x in filtered if x.file.name == file_name]
+            filtered = [x for x in filtered if x.initial_name.name == file_name]
         return filtered
 
     def single(
         self, id: str = None, source: Source = None, file_name: str = None
     ) -> Genome:
-        """Same as filter but raises an exception if not a single genome is returned.
+        """Same as filter but raises an exception if not exactly a single genome is returned.
 
         Args:
             id (str, optional): ID of the genome. Defaults to None.

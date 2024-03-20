@@ -17,7 +17,7 @@ class Downloader:
         Returns:
             bool: True if the genome needs to be downloaded, False otherwise.
         """
-        if not genome.file.exists():
+        if not genome.initial_name.exists():
             return True
         return False
 
@@ -32,8 +32,8 @@ class Downloader:
         """
 
         try:
-            genome.file.unlink(True)
-            with genome.file.open("wb") as f:
+            genome.initial_name.unlink(True)
+            with genome.initial_name.open("wb") as f:
                 curl = pycurl.Curl()
                 curl.setopt(pycurl.URL, genome.url)
                 curl.setopt(pycurl.WRITEDATA, f)
@@ -46,6 +46,6 @@ class Downloader:
                 curl.perform()
                 curl.close()
         except:
-            if genome.file.exists():
-                genome.file.unlink()
+            if genome.initial_name.exists():
+                genome.initial_name.unlink()
             raise

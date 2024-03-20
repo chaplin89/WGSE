@@ -44,30 +44,30 @@ class GenomeRepository:
 
     def _rebase_reference_genomes(self, genomes: List[Genome], root: Path):
         for genome in genomes:
-            genome.file = root.joinpath(genome.file)
+            genome.initial_name = root.joinpath(genome.initial_name)
 
     def to_bgzip(self, genome: Genome):
-        type = self._type_checker.get_type(genome.file)
+        type = self._type_checker.get_type(genome.initial_name)
 
         if type == Type.RAZF_GZIP:
-            logging.info(f"Determined type RAZF for {genome.file}. Skipping.")
+            logging.info(f"Determined type RAZF for {genome.initial_name}. Skipping.")
             # TODO: figure out how to decompress this format.
             return
 
         if type == Type.BGZIP:
-            logging.info(f"Determined type BGZIP for {genome.file}. Skipping.")
+            logging.info(f"Determined type BGZIP for {genome.initial_name}. Skipping.")
             return
        
         if type != Type.DECOMPRESSED:            
-            logging.info(f"Determined type {type} for {genome.file}. Decompressing.")
+            logging.info(f"Determined type {type} for {genome.initial_name}. Decompressing.")
             decompressed = self._decompressor.decompress(genome)
-            genome.file.unlink()
-            genome.file = decompressed
+            genome.initial_name.unlink()
+            genome.initial_name = decompressed
         
-        logging.info(f"Compressing {genome.file} into bgzip.")
+        logging.info(f"Compressing {genome.initial_name} into bgzip.")
         compressed = self._compressor.compress(genome)
-        genome.file.unlink()
-        genome.file = compressed
+        genome.initial_name.unlink()
+        genome.initial_name = compressed
 
     def add_to_library(self, genome: Genome):
         """Add a genome to the library
@@ -81,13 +81,13 @@ class GenomeRepository:
             logging.info(f"Downloading Genome {genome.code}.")
             self._downloader.download(genome, None)
 
-        target = self.determine_target_name(genome.file)
+        target = self.determine_target_name(genome.initial_name)
         logging.info(f"Genome target name: {target}.")
 
         if target.exists():
-            genome.file = target
+            genome.initial_name = target
         
-        type = self._type_checker.get_type(genome.file)
+        type = self._type_checker.get_type(genome.initial_name)
         logging.info(f"Genome file type determined: {type}.")
 
         if type != Type.BGZIP:
