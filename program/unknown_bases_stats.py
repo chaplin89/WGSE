@@ -37,6 +37,8 @@ import logging
 import time
 from typing import Dict, List, TextIO, Tuple
 
+from collections import OrderedDict
+
 
 class Run:
     """Represent a single run of Ns"""
@@ -135,8 +137,8 @@ class UnknownBasesStats:
         self._buckets_number = buckets_number
         self._path = path
 
-    def _process_file(self, fp: TextIO) -> Dict[str, Sequence]:
-        sequences = dict()
+    def _process_file(self, fp: TextIO) -> List[Sequence]:
+        sequences = OrderedDict()
         pattern = re.compile(r"N+")
 
         position = None
@@ -171,8 +173,8 @@ class UnknownBasesStats:
 
             result = list(pattern.finditer(line))
 
+            # Next sequence found but there's still an open run: close
             if len(result) == 0:
-                # Next sequence found but there's still an open run: close
                 if current_sequence.is_run_open():
                     current_sequence.close_run(position)
 
@@ -193,16 +195,16 @@ class UnknownBasesStats:
         # File was terminated but there's still an open run: close
         if current_sequence.is_run_open():
             current_sequence.close_run(position)
-        return sequences
+        return list(sequences.values())
 
     def _count_unknown_bases(self):
         logging.info(f"Starting to process file: {self._path.name}")
         with gzip.open(self._path, "rt") as f:
             return self._process_file(f)
         
-    def _generate_nbins(self, unknown_basis : Dict[str, List[Sequence]]):
+    def _generate_nbins(self, unknown_basis : List[Sequence]):
         stats = Stats(self._long_run_threshold, self._buckets_number, self._path.stem)
-        lines = stats.get_nbin(unknown_basis.values())
+        lines = stats.get_nbin(unknown_basis)
         target_name = self._path.stem.strip("".join(self._path.suffixes)) + "_nbin.csv"
         target = self._path.parent.joinpath(target_name)
         with open(target, "wt") as f:
