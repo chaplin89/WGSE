@@ -135,7 +135,7 @@ class UnknownBasesStats:
         self._buckets_number = buckets_number
         self._path = path
 
-    def _process_file(self, fp: TextIO) -> Dict[str, list[Tuple[int, int]]]:
+    def _process_file(self, fp: TextIO) -> Dict[str, Sequence]:
         sequences = dict()
         pattern = re.compile(r"N+")
 
@@ -199,14 +199,17 @@ class UnknownBasesStats:
         logging.info(f"Starting to process file: {self._path.name}")
         with gzip.open(self._path, "rt") as f:
             return self._process_file(f)
-
-    def _compute_statistics(self, unknown_basis: Dict[str, List[Sequence]]):
+        
+    def _generate_nbins(self, unknown_basis : Dict[str, List[Sequence]]):
         stats = Stats(self._long_run_threshold, self._buckets_number, self._path.stem)
         lines = stats.get_nbin(unknown_basis.values())
-        target_name = self._path.stem.strip("".join(self._path.suffixes)) + "_ndic1.csv"
+        target_name = self._path.stem.strip("".join(self._path.suffixes)) + "_nbin.csv"
         target = self._path.parent.joinpath(target_name)
         with open(target, "wt") as f:
             f.writelines(lines)
+
+    def _compute_statistics(self, unknown_basis: Dict[str, List[Sequence]]):
+        self._generate_nbins(unknown_basis)
 
     def get_stats(self):
         unknown_bases = self._count_unknown_bases()
@@ -214,7 +217,7 @@ class UnknownBasesStats:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser("unknown_base_stat.py")
+    parser = argparse.ArgumentParser("unknown_bases_stats.py")
     parser.add_argument(
         "reference",
         help="Indicate the path of the bgzip compressed reference genome",
