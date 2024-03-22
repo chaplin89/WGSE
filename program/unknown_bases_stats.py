@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 # coding: utf8
 #
-# Counting Reference Model Final Assembly N's (BED, region, etc output files)
-#
 # Part of the WGS Extract (https://wgse.bio/) system (standalone)
 #
 # Copyright (C) 2022-2024 Randy Harr
@@ -11,6 +9,8 @@
 # A copy of GNU GPL v3 should have been included in this software package in LICENSE.txt.
 
 """
+Process compressed FASTA files to generate statistics on the presence of unknown bases (literal 'N's inside the FASTA).
+
 Standalone script to process a reference model FASTA to determine the inclusion of N's in the base pair sequence.
 Reads the compressed FASTA. Takes as a parameter the FASTA file. Also expects and reads in the DICT file determined
 from the FASTA file name -- easier to do one pass if we have the sequence lengths.  Processes all sequences.
@@ -35,9 +35,11 @@ import re
 import gzip
 import logging
 import time
-from typing import Dict, List, TextIO, Tuple
+from typing import Dict, List, TextIO
 
 from collections import OrderedDict
+
+from statistics import mean, stdev
 
 
 class Run:
@@ -112,7 +114,8 @@ class Stats:
 
     def get_nbin(self, sequences: List[Sequence]):
         lines = [
-            f"#Model {self._model} with >{self._long_threshold}bp of N Sequence\n",
+            f"#WGS Extract runs of N: BIN definition file\n",
+            f"#Processing Ref Model: {self._model} with >{self._long_threshold}bp of N runs\n",
             f"#SN\tBinID\tStart\tSize\n",
         ]
         for sequence in sequences:
@@ -120,14 +123,34 @@ class Stats:
                 row = f"{sequence.name}\t{index+1}\t{run.start:,}\t{run.lenght:,}\n"
                 lines.append(row)
         return lines
+    
+    def get_bed(self, sequences: List[Sequence]):
+        lines = [
+            f"#WGS Extract runs of N: BED file of bin definitions\n",
+            f"#Processing Ref Model: {self._model} with >{self._long_threshold}bp of N runs\n",
+            f"#SN\tStart\tStop\n"
+        ]
+        
+        for sequence in sequences:
+            for run in sequence.filter_runs(self._long_threshold):
+                row = f"{sequence.name}\t{run.start}\t{run.start+run.lenght}\n"
+                lines.append(row)
+        return lines
 
-    def get_nbuc(self):
+    def get_nbuc(self, sequences: List[Sequence]):
         lines = [
             f"#WGS Extract generated Sequence of N summary file\n",
-            f"#Model {self.model} with >{self._long_threshold}bp Sequence of N and {self._buckets_number} buckets per sequence\n",
-            f"#Seq\tNumBP\tNumNs\tNumNreg\tNregSizeMean\tNregSizeStdDev\tSmlNreg\tBuckSize\t\n",
+            f"#Model {self._model} with >{self._long_threshold}bp Sequence of N and {self._buckets_number} buckets per sequence\n",
+            f"#Seq\tNumBP\tNumNs\tNumNreg\tNregSizeMean\tNregSizeStdDev\tSmlNreg\tBuckSize\t\n"
         ]
-
+        for sequence in sequences:
+            lenghts = [x.lenght for x in sequence.filter_runs(self._long_threshold)]
+            average_lenght = mean(lenghts)
+            standard_deviation = stdev(lenghts)
+            total = sum(lenghts)
+            row = f"{sequence.name}\tNumBP\t{total}\t{len(lenghts)}\t{average_lenght}\t{standard_deviation}\tSmlNreg\tBuckSize\t\n"
+            lines.append(row)
+        return lines
 
 class UnknownBasesStats:
     def __init__(
@@ -164,8 +187,8 @@ class UnknownBasesStats:
                 if sequence_name in sequences:
                     raise RuntimeError(f"Found a duplicated sequence: {sequence_name}")
                 if "1" in sequences:
-                    pass
-                    # return sequences
+                    # pass
+                    return list(sequences.values())
                 current_sequence = Sequence(sequence_name)
                 sequences[sequence_name] = current_sequence
                 position = 0
@@ -203,15 +226,33 @@ class UnknownBasesStats:
             return self._process_file(f)
         
     def _generate_nbins(self, unknown_basis : List[Sequence]):
-        stats = Stats(self._long_run_threshold, self._buckets_number, self._path.stem)
+        stats = Stats(self._long_run_threshold, self._buckets_number, self._path.name)
         lines = stats.get_nbin(unknown_basis)
         target_name = self._path.stem.strip("".join(self._path.suffixes)) + "_nbin.csv"
+        target = self._path.parent.joinpath(target_name)
+        with open(target, "wt") as f:
+            f.writelines(lines)
+    
+    def _generate_bed(self, unknown_basis: List[Sequence]):
+        stats = Stats(self._long_run_threshold, self._buckets_number, self._path.name)
+        lines = stats.get_bed(unknown_basis)
+        target_name = self._path.stem.strip("".join(self._path.suffixes)) + "_nreg.bed"
+        target = self._path.parent.joinpath(target_name)
+        with open(target, "wt") as f:
+            f.writelines(lines)
+    
+    def _generate_nbuc(self, unknown_basis: List[Sequence]):
+        stats = Stats(self._long_run_threshold, self._buckets_number, self._path.name)
+        lines = stats.get_nbuc(unknown_basis)
+        target_name = self._path.stem.strip("".join(self._path.suffixes)) + "_nbuc.csv"
         target = self._path.parent.joinpath(target_name)
         with open(target, "wt") as f:
             f.writelines(lines)
 
     def _compute_statistics(self, unknown_basis: Dict[str, List[Sequence]]):
         self._generate_nbins(unknown_basis)
+        self._generate_bed(unknown_basis)
+        self._generate_nbuc(unknown_basis)
 
     def get_stats(self):
         unknown_bases = self._count_unknown_bases()
