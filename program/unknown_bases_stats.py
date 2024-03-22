@@ -36,9 +36,7 @@ import gzip
 import logging
 import time
 from typing import Dict, List, TextIO
-
 from collections import OrderedDict
-
 from statistics import mean, stdev
 
 
@@ -170,15 +168,16 @@ class UnknownBasesStats:
         for line in fp:
             line = line.rstrip("\n")
 
+            # Comment: skip
             if len(line) == 0 or line[0] == "#":
                 continue
-
+            
+            # Start of a new sequence
             if line[0] == "+":
                 raise RuntimeError(
                     f"Expected a FASTA reference model, got a FASTQ sequencer data."
                 )
 
-            # Start of a new sequence
             if line[0] == ">":
                 if current_sequence is not None and current_sequence.is_run_open():
                     current_sequence.close_run(position)
@@ -196,7 +195,7 @@ class UnknownBasesStats:
 
             result = list(pattern.finditer(line))
 
-            # Next sequence found but there's still an open run: close
+            # Next run found but there's still an open run: close
             if len(result) == 0:
                 if current_sequence.is_run_open():
                     current_sequence.close_run(position)
@@ -224,39 +223,22 @@ class UnknownBasesStats:
         logging.info(f"Starting to process file: {self._path.name}")
         with gzip.open(self._path, "rt") as f:
             return self._process_file(f)
-        
-    def _generate_nbins(self, unknown_basis : List[Sequence]):
-        stats = Stats(self._long_run_threshold, self._buckets_number, self._path.name)
-        lines = stats.get_nbin(unknown_basis)
-        target_name = self._path.stem.strip("".join(self._path.suffixes)) + "_nbin.csv"
-        target = self._path.parent.joinpath(target_name)
-        with open(target, "wt") as f:
-            f.writelines(lines)
     
-    def _generate_bed(self, unknown_basis: List[Sequence]):
-        stats = Stats(self._long_run_threshold, self._buckets_number, self._path.name)
-        lines = stats.get_bed(unknown_basis)
-        target_name = self._path.stem.strip("".join(self._path.suffixes)) + "_nreg.bed"
+    def _generate_file(self, suffix: str, lines: List[Sequence]):
+        target_name = self._path.stem.strip("".join(self._path.suffixes)) + suffix
         target = self._path.parent.joinpath(target_name)
         with open(target, "wt") as f:
-            f.writelines(lines)
+            f.writelines(lines)        
     
-    def _generate_nbuc(self, unknown_basis: List[Sequence]):
+    def _generate_files(self, unknown_basis: Dict[str, List[Sequence]]):
         stats = Stats(self._long_run_threshold, self._buckets_number, self._path.name)
-        lines = stats.get_nbuc(unknown_basis)
-        target_name = self._path.stem.strip("".join(self._path.suffixes)) + "_nbuc.csv"
-        target = self._path.parent.joinpath(target_name)
-        with open(target, "wt") as f:
-            f.writelines(lines)
-
-    def _compute_statistics(self, unknown_basis: Dict[str, List[Sequence]]):
-        self._generate_nbins(unknown_basis)
-        self._generate_bed(unknown_basis)
-        self._generate_nbuc(unknown_basis)
+        self._generate_file("_nbuc.csv", stats.get_nbuc(unknown_basis))
+        self._generate_file(".bed", stats.get_bed(unknown_basis))
+        self._generate_file("_nbin.csv", stats.get_nbin(unknown_basis))
 
     def get_stats(self):
         unknown_bases = self._count_unknown_bases()
-        self._compute_statistics(unknown_bases)
+        self._generate_files(unknown_bases)
 
 
 if __name__ == "__main__":
