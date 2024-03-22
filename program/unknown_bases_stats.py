@@ -50,9 +50,19 @@ class Run:
         self.length = None
 
     def open(self, position: int):
+        """_summary_
+
+        Args:
+            position (int): _description_
+        """
         self.start = position
 
     def close(self, length: int):
+        """_summary_
+
+        Args:
+            length (int): _description_
+        """
         self.length = length
 
 
@@ -60,12 +70,23 @@ class Sequence:
     """Represent a sequence containing multiple runs of N."""
 
     def __init__(self, name: str, length: int) -> None:
+        """_summary_
+
+        Args:
+            name (str): _description_
+            length (int): _description_
+        """
         self.runs: List[Run] = []
         self.name: str = name
         self.length = length
         self._current_run: Run = None
 
     def is_run_open(self) -> bool:
+        """_summary_
+
+        Returns:
+            bool: _description_
+        """
         return self._current_run is not None
 
     def open_run(self, position: int) -> None:
@@ -91,8 +112,10 @@ class Sequence:
     def filter_runs(self, length_greater_than: int):
         return [x for x in self.runs if x.length > length_greater_than]
     
-    def split_in_buckets(self, buckets_number : int):
-        # Bucket index -> count
+    def split_in_buckets(self, buckets_number : int) -> OrderedDict[int, int]:
+        if buckets_number > self.length:
+            raise RuntimeError(f"Number of buckets should be at least {self.length}")
+        
         buckets = OrderedDict()
         bucket_size = self.length / buckets_number
         
@@ -102,13 +125,13 @@ class Sequence:
             index_bucket_start =  floor(start / bucket_size)
             index_bucket_end = floor(end / bucket_size)
             
-            index_bucket_delta = index_bucket_end - index_bucket_start
-            for bucket in range(index_bucket_delta):
-                start_bucket_offset = bucket * bucket_size
+            for bucket in range(index_bucket_start, index_bucket_end + 1):
+                start_bucket_offset = max(bucket * bucket_size, start)
                 end_bucket_offset = min(start_bucket_offset + bucket_size - 1, end)
                 if bucket not in buckets:
                     buckets[bucket] = 0
-                buckets[bucket] += end_bucket_offset
+                runs_count = end_bucket_offset - start_bucket_offset
+                buckets[bucket] += runs_count + 1
         return buckets
 
     def close_run(self, position: int) -> None:
