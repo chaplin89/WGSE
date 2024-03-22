@@ -69,7 +69,7 @@ class Sequence:
         """Open a new run of Ns in this sequence.
 
         Args:
-            position (int): _description_
+            position (int): Position where the run is starting.
 
         Raises:
             RuntimeError: Opening a sequence that is already opened.
@@ -86,7 +86,7 @@ class Sequence:
         """Close an open run of Ns in this sequence.
 
         Args:
-            position (int): _description_
+            position (int): Position where the run is ending.
 
         Raises:
             RuntimeError: Closing a sequence that is not open or closing a
@@ -102,7 +102,6 @@ class Sequence:
         self._current_run.close(run_lenght)
         self.runs.append(self._current_run)
         self._current_run = None
-
 
 class Stats:
     def __init__(self, long_threshold: int, buckets_number, model: str) -> None:
@@ -230,11 +229,11 @@ class UnknownBasesStats:
         with open(target, "wt") as f:
             f.writelines(lines)        
     
-    def _generate_files(self, unknown_basis: Dict[str, List[Sequence]]):
+    def _generate_files(self, unknown_bases: Dict[str, List[Sequence]]):
         stats = Stats(self._long_run_threshold, self._buckets_number, self._path.name)
-        self._generate_file("_nbuc.csv", stats.get_nbuc(unknown_basis))
-        self._generate_file(".bed", stats.get_bed(unknown_basis))
-        self._generate_file("_nbin.csv", stats.get_nbin(unknown_basis))
+        self._generate_file("_nbuc.csv", stats.get_nbuc(unknown_bases))
+        self._generate_file(".bed", stats.get_bed(unknown_bases))
+        self._generate_file("_nbin.csv", stats.get_nbin(unknown_bases))
 
     def get_stats(self):
         unknown_bases = self._count_unknown_bases()
