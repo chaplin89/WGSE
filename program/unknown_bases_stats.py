@@ -30,6 +30,8 @@ DICT file read in to start.  Key is not just the SN but also LN fields in the DI
 """
 
 import argparse
+from math import floor
+import math
 from pathlib import Path
 import re
 import gzip
@@ -45,21 +47,22 @@ class Run:
 
     def __init__(self) -> None:
         self.start = None
-        self.lenght = None
+        self.length = None
 
     def open(self, position: int):
         self.start = position
 
-    def close(self, lenght: int):
-        self.lenght = lenght
+    def close(self, length: int):
+        self.length = length
 
 
 class Sequence:
     """Represent a sequence containing multiple runs of N."""
 
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str, length: int) -> None:
         self.runs: List[Run] = []
         self.name: str = name
+        self.length = length
         self._current_run: Run = None
 
     def is_run_open(self) -> bool:
@@ -76,11 +79,37 @@ class Sequence:
         """
         if self._current_run is not None:
             raise RuntimeError("Trying to open a an already opened run of Ns.")
+        # Ensure no overlapping runs
+        if len(self.runs) > 0:
+            previous_end = self.runs[-1].start + self.runs[-1].length
+            if position < previous_end + 1:
+                raise RuntimeError("Trying to open a run overlapping with previous runs.")
+        
         self._current_run = Run()
         self._current_run.open(position)
+
+    def filter_runs(self, length_greater_than: int):
+        return [x for x in self.runs if x.length > length_greater_than]
+    
+    def split_in_buckets(self, buckets_number : int):
+        # Bucket index -> count
+        buckets = OrderedDict()
+        bucket_size = self.length / buckets_number
         
-    def filter_runs(self, lenght_greater_than : int):
-        return [x for x in self.runs if x.lenght > lenght_greater_than]
+        for run in self.runs:
+            start = run.start
+            end = run.start + run.length
+            index_bucket_start =  floor(start / bucket_size)
+            index_bucket_end = floor(end / bucket_size)
+            
+            index_bucket_delta = index_bucket_end - index_bucket_start
+            for bucket in range(index_bucket_delta):
+                start_bucket_offset = bucket * bucket_size
+                end_bucket_offset = min(start_bucket_offset + bucket_size - 1, end)
+                if bucket not in buckets:
+                    buckets[bucket] = 0
+                buckets[bucket] += end_bucket_offset
+        return buckets
 
     def close_run(self, position: int) -> None:
         """Close an open run of Ns in this sequence.
@@ -98,10 +127,11 @@ class Sequence:
             raise RuntimeError(
                 f"Trying to close a run of Ns with position {position} and start {self._current_run.start}"
             )
-        run_lenght = position - self._current_run.start
-        self._current_run.close(run_lenght)
+        run_length = position - self._current_run.start
+        self._current_run.close(run_length)
         self.runs.append(self._current_run)
         self._current_run = None
+
 
 class Stats:
     def __init__(self, long_threshold: int, buckets_number, model: str) -> None:
@@ -117,20 +147,20 @@ class Stats:
         ]
         for sequence in sequences:
             for index, run in enumerate(sequence.filter_runs(self._long_threshold)):
-                row = f"{sequence.name}\t{index+1}\t{run.start:,}\t{run.lenght:,}\n"
+                row = f"{sequence.name}\t{index+1}\t{run.start:,}\t{run.length:,}\n"
                 lines.append(row)
         return lines
-    
+
     def get_bed(self, sequences: List[Sequence]):
         lines = [
             f"#WGS Extract runs of N: BED file of bin definitions\n",
             f"#Processing Ref Model: {self._model} with >{self._long_threshold}bp of N runs\n",
-            f"#SN\tStart\tStop\n"
+            f"#SN\tStart\tStop\n",
         ]
-        
+
         for sequence in sequences:
             for run in sequence.filter_runs(self._long_threshold):
-                row = f"{sequence.name}\t{run.start}\t{run.start+run.lenght}\n"
+                row = f"{sequence.name}\t{run.start}\t{run.start+run.length}\n"
                 lines.append(row)
         return lines
 
@@ -138,14 +168,24 @@ class Stats:
         lines = [
             f"#WGS Extract generated Sequence of N summary file\n",
             f"#Model {self._model} with >{self._long_threshold}bp Sequence of N and {self._buckets_number} buckets per sequence\n",
-            f"#Seq\tNumBP\tNumNs\tNumNreg\tNregSizeMean\tNregSizeStdDev\tSmlNreg\tBuckSize\t\n"
+            f"#Seq\tNumBP\tNumNs\tNumNreg\tNregSizeMean\tNregSizeStdDev\tSmlNreg\tBuckSize\tBucket Sparse List (bp start, ln value) when nonzero\n",
         ]
         for sequence in sequences:
-            lenghts = [x.lenght for x in sequence.filter_runs(self._long_threshold)]
-            average_lenght = mean(lenghts)
-            standard_deviation = stdev(lenghts)
-            total = sum(lenghts)
-            row = f"{sequence.name}\tNumBP\t{total}\t{len(lenghts)}\t{average_lenght}\t{standard_deviation}\tSmlNreg\tBuckSize\t\n"
+            long_runs = sequence.filter_runs(self._long_threshold)
+            lengths = [x.length for x in long_runs]
+            average_length = mean(lengths) if len(lengths) > 0 else 0
+            standard_deviation = stdev(lengths) if len(lengths) > 1 else 0
+            total = sum(lengths)
+            
+            row = f"{sequence.name}\tNumBP\t{total}\t{len(lengths)}\t{average_length}\t{standard_deviation}\tSmlNreg\tBuckSize\t\n"
+            
+            for index, bucket in range(sequence.split_in_buckets(self._buckets_number)):
+                val = round(math.log(bucket) if bucket > 1 else 0)
+                # changed to print as sparse list as most of the 1000 entries are zero; so now bucket start (bp) then len (Ncnt)
+                if val > 0:
+                    start = index * bucksize
+                    lines.append(f'\t{start}\t{val}')
+            
             lines.append(row)
         return lines
 
@@ -170,7 +210,7 @@ class UnknownBasesStats:
             # Comment: skip
             if len(line) == 0 or line[0] == "#":
                 continue
-            
+
             # Start of a new sequence
             if line[0] == "+":
                 raise RuntimeError(
@@ -181,25 +221,26 @@ class UnknownBasesStats:
                 if current_sequence is not None and current_sequence.is_run_open():
                     current_sequence.close_run(position)
                 sequence_name = line.split()[0][1:]
+                sequence_length = int(line.split()[2].split(':')[4])
+                if len(sequences) > 0:
+                    pass
+                    # return list(sequences.values())
                 logging.info(f"Processing sequence {sequence_name}")
                 if sequence_name in sequences:
                     raise RuntimeError(f"Found a duplicated sequence: {sequence_name}")
-                if "1" in sequences:
-                    # pass
-                    return list(sequences.values())
-                current_sequence = Sequence(sequence_name)
+                current_sequence = Sequence(sequence_name, sequence_length)
                 sequences[sequence_name] = current_sequence
                 position = 0
                 continue
 
-            result = list(pattern.finditer(line))
+            matches = list(pattern.finditer(line))
 
             # Next run found but there's still an open run: close
-            if len(result) == 0:
+            if len(matches) == 0:
                 if current_sequence.is_run_open():
                     current_sequence.close_run(position)
 
-            for match in result:
+            for match in matches:
                 if match.start() == 0:
                     # If open, keep open: is continuing from the previous line.
                     if not current_sequence.is_run_open():
@@ -222,13 +263,13 @@ class UnknownBasesStats:
         logging.info(f"Starting to process file: {self._path.name}")
         with gzip.open(self._path, "rt") as f:
             return self._process_file(f)
-    
+
     def _generate_file(self, suffix: str, lines: List[Sequence]):
         target_name = self._path.stem.strip("".join(self._path.suffixes)) + suffix
         target = self._path.parent.joinpath(target_name)
         with open(target, "wt") as f:
-            f.writelines(lines)        
-    
+            f.writelines(lines)
+
     def _generate_files(self, unknown_bases: Dict[str, List[Sequence]]):
         stats = Stats(self._long_run_threshold, self._buckets_number, self._path.name)
         self._generate_file("_nbuc.csv", stats.get_nbuc(unknown_bases))
@@ -243,19 +284,19 @@ class UnknownBasesStats:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser("unknown_bases_stats.py")
     parser.add_argument(
-        "reference",
+        "--reference",
         help="Indicate the path of the bgzip compressed reference genome",
         type=Path,
+        default=Path("reference\\genomes\\hs37d5.fa.gz"),
     )
     parser.add_argument(
         "--verbose", help="Set logging level [1,5]", type=int, default=2
     )
-    # args = parser.parse_args()
-    # logging.getLogger().setLevel(args.verbose)
-    logging.getLogger().setLevel(logging.INFO)
+    args = parser.parse_args()
+    logging.getLogger().setLevel(args.verbose)
+
     start = time.time()
-    stats = UnknownBasesStats(Path("reference\\genomes\\hs37d5.fa.gz"))
-    # countn = UnknownBasesStats(args.reference)
-    statistics = stats.get_stats()
+    unknown_bases_stats = UnknownBasesStats(args.reference)
+    unknown_bases_stats.get_stats()
     end = time.time()
     logging.info(f"Time {end-start}s")
