@@ -31,58 +31,75 @@ DICT file read in to start.  Key is not just the SN but also LN fields in the DI
 
 import argparse
 from pathlib import Path
-import sys
-import os
 import re
-import math
 import gzip
 import logging
-import enum
 import time
 from typing import Dict, List, TextIO, Tuple
+
+
+class Run:
+    """Represent a single run of Ns"""
+
+    def __init__(self) -> None:
+        self.start = None
+        self.lenght = None
+
+    def open(self, position: int):
+        self.start = position
+
+    def close(self, lenght: int):
+        self.lenght = lenght
 
 
 class Sequence:
     """Represent a sequence containing multiple runs of N."""
 
     def __init__(self, name: str) -> None:
-        self.runs = []
-        self._current_start = None
-        self._name = name
+        self.runs: List[Run] = []
+        self.name: str = name
+        self._current_run: Run = None
 
-    def is_open(self) -> bool:
-        return self._current_start is not None
+    def is_run_open(self) -> bool:
+        return self._current_run is not None
 
-    def open(self, position) -> None:
-        """_summary_
+    def open_run(self, position: int) -> None:
+        """Open a new run of Ns in this sequence.
 
         Args:
-            position (_type_): _description_
+            position (int): _description_
 
         Raises:
-            RuntimeError: _description_
+            RuntimeError: Opening a sequence that is already opened.
         """
-        if self._current_start is not None:
+        if self._current_run is not None:
             raise RuntimeError("Trying to open a an already opened run of Ns.")
-        self._current_start = position
+        self._current_run = Run()
+        self._current_run.open(position)
+        
+    def filter_runs(self, lenght_greater_than : int):
+        return [x for x in self.runs if x.lenght > lenght_greater_than]
 
-    def close(self, position) -> None:
-        """_summary_
+    def close_run(self, position: int) -> None:
+        """Close an open run of Ns in this sequence.
 
         Args:
-            position (_type_): _description_
+            position (int): _description_
 
         Raises:
-            RuntimeError: _description_
+            RuntimeError: Closing a sequence that is not open or closing a
+            sequence with a position smaller than the open.
         """
-        if self._current_start is None:
+        if self._current_run is None:
             raise RuntimeError("Trying to close an already closed run of Ns.")
-        if position <= self._current_start:
+        if position <= self._current_run.start:
             raise RuntimeError(
-                f"Trying to close a sequence of Ns with position {position} and start {self._current_start}"
+                f"Trying to close a run of Ns with position {position} and start {self._current_run.start}"
             )
-        self.runs.append((self._current_start, position - self._current_start))
-        self._current_start = None
+        run_lenght = position - self._current_run.start
+        self._current_run.close(run_lenght)
+        self.runs.append(self._current_run)
+        self._current_run = None
 
 
 class Stats:
@@ -91,14 +108,15 @@ class Stats:
         self._buckets_number = buckets_number
         self._model = model
 
-    def get_nbin(self, Sequence: dict):
+    def get_nbin(self, sequences: List[Sequence]):
         lines = [
             f"#Model {self._model} with >{self._long_threshold}bp of N Sequence\n",
             f"#SN\tBinID\tStart\tSize\n",
         ]
-        for key, Sequence in Sequence.items():
-            for index, run in enumerate(Sequence):
-                lines.append(f"{key}\t{index+1}\t{run[0]:,}\t{run[1]:,}\n")
+        for sequence in sequences:
+            for index, run in enumerate(sequence.filter_runs(self._long_threshold)):
+                row = f"{sequence.name}\t{index+1}\t{run.start:,}\t{run.lenght:,}\n"
+                lines.append(row)
         return lines
 
     def get_nbuc(self):
@@ -137,17 +155,17 @@ class UnknownBasesStats:
 
             # Start of a new sequence
             if line[0] == ">":
-                if current_sequence is not None and current_sequence.is_open():
-                    current_sequence.close(position)
+                if current_sequence is not None and current_sequence.is_run_open():
+                    current_sequence.close_run(position)
                 sequence_name = line.split()[0][1:]
                 logging.info(f"Processing sequence {sequence_name}")
                 if sequence_name in sequences:
                     raise RuntimeError(f"Found a duplicated sequence: {sequence_name}")
                 if "1" in sequences:
                     pass
-                    #return sequences
+                    # return sequences
                 current_sequence = Sequence(sequence_name)
-                sequences[sequence_name] = current_sequence.runs
+                sequences[sequence_name] = current_sequence
                 position = 0
                 continue
 
@@ -155,26 +173,26 @@ class UnknownBasesStats:
 
             if len(result) == 0:
                 # Next sequence found but there's still an open run: close
-                if current_sequence.is_open():
-                    current_sequence.close(position)
+                if current_sequence.is_run_open():
+                    current_sequence.close_run(position)
 
             for match in result:
                 if match.start() == 0:
                     # If open, keep open: is continuing from the previous line.
-                    if not current_sequence.is_open():
-                        current_sequence.open(position)
+                    if not current_sequence.is_run_open():
+                        current_sequence.open_run(position)
                 else:
-                    if current_sequence.is_open():
-                        current_sequence.close(position)
-                    current_sequence.open(match.start() + position)
+                    if current_sequence.is_run_open():
+                        current_sequence.close_run(position)
+                    current_sequence.open_run(match.start() + position)
 
                 if match.end() < len(line):
-                    current_sequence.close(match.end() + position)
+                    current_sequence.close_run(match.end() + position)
             position += len(line)
 
         # File was terminated but there's still an open run: close
-        if current_sequence.is_open():
-            current_sequence.close(position)
+        if current_sequence.is_run_open():
+            current_sequence.close_run(position)
         return sequences
 
     def _count_unknown_bases(self):
@@ -182,14 +200,12 @@ class UnknownBasesStats:
         with gzip.open(self._path, "rt") as f:
             return self._process_file(f)
 
-    def _compute_statistics(self, unknown_basis: Dict[str, List[Tuple[int, int]]]):
+    def _compute_statistics(self, unknown_basis: Dict[str, List[Sequence]]):
         stats = Stats(self._long_run_threshold, self._buckets_number, self._path.stem)
-        long_Sequence = {
-            x: [y for y in unknown_basis[x] if y[1] >= self._long_run_threshold]
-            for x in unknown_basis
-        }
-        lines = stats.get_nbin(long_Sequence)
-        with open("test.csv", "wt") as f:
+        lines = stats.get_nbin(unknown_basis.values())
+        target_name = self._path.stem.strip("".join(self._path.suffixes)) + "_ndic1.csv"
+        target = self._path.parent.joinpath(target_name)
+        with open(target, "wt") as f:
             f.writelines(lines)
 
     def get_stats(self):
@@ -204,10 +220,12 @@ if __name__ == "__main__":
         help="Indicate the path of the bgzip compressed reference genome",
         type=Path,
     )
-    parser.add_argument("--verbose", help="Set logging level [1,5]", type=int, default=2)
-    args = parser.parse_args()
-    logging.getLogger().setLevel(args.verbose)
-    
+    parser.add_argument(
+        "--verbose", help="Set logging level [1,5]", type=int, default=2
+    )
+    # args = parser.parse_args()
+    # logging.getLogger().setLevel(args.verbose)
+    logging.getLogger().setLevel(logging.INFO)
     start = time.time()
     stats = UnknownBasesStats(Path("reference\\genomes\\hs37d5.fa.gz"))
     # countn = UnknownBasesStats(args.reference)
