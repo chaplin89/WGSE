@@ -110,7 +110,6 @@ class Stats:
 
 
 class UnknownBasesStats:
-
     def __init__(
         self, path: Path, long_run_threshold: int = 300, buckets_number: int = 1000
     ):
@@ -145,8 +144,8 @@ class UnknownBasesStats:
                 if sequence_name in sequences:
                     raise RuntimeError(f"Found a duplicated sequence: {sequence_name}")
                 if "1" in sequences:
-                    #    pass
-                    return sequences
+                    pass
+                    #return sequences
                 current_sequence = Sequence(sequence_name)
                 sequences[sequence_name] = current_sequence.runs
                 position = 0
@@ -190,7 +189,7 @@ class UnknownBasesStats:
             for x in unknown_basis
         }
         lines = stats.get_nbin(long_Sequence)
-        with open("checazzo.csv", "wt") as f:
+        with open("test.csv", "wt") as f:
             f.writelines(lines)
 
     def get_stats(self):
