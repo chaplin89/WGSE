@@ -26,7 +26,6 @@ def test_double_open_run():
         sut.open_run(0)
         sut.open_run(0)
     assert "already opened" in str(e.value)
-        
 
 def test_only_close_run():
     with pytest.raises(RuntimeError) as e:
@@ -53,10 +52,16 @@ def test_overlapping_runs():
     assert "overlapping" in str(e.value)
 
 def test_filter_runs_is_filtering():
+    # Arrange
     sut = Sequence("Foo", 10)
+    # Act
     sut.open_run(0)
-    sut.close_run(15)
-    assert len(sut.runs) == 1
-    assert sut.runs[0].start == 0
-    assert sut.runs[0].length == 15
+    sut.close_run(150)
+    sut.open_run(300)
+    sut.close_run(449)
+    runs = sut.filter_runs(149)
+    # Assert
+    assert len(runs) == 1
+    assert runs[0].start == 0
+    assert runs[0].length == 150
     
