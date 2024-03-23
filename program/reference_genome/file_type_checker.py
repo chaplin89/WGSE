@@ -14,7 +14,7 @@ class Type(enum.Enum):
     DECOMPRESSED = 6
 
 class FileTypeChecker:
-    
+
     _EXT_TO_TYPE = {
         ".7z": Type.SEVENZIP,
         ".zip": Type.ZIP,
@@ -49,9 +49,9 @@ class FileTypeChecker:
         # eventually fallback on extension.
 
         file_type = self._samtools.get_file_type(file)
-        for key in FileTypeChecker._HTSFILE_TO_TYPE.keys():
+        for key, value in FileTypeChecker._HTSFILE_TO_TYPE.items():
             if key in file_type:
-                return FileTypeChecker._HTSFILE_TO_TYPE[key]
+                return value
 
         # TODO: starting from .gz in _EXT_TO_TYPE, htsfile should really
         # be able to give something useful. If it isn't the case, it could

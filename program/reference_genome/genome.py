@@ -1,6 +1,6 @@
 import enum
-from pathlib import Path
-from typing import List
+import pathlib
+
 
 class Source(enum.Enum):
     AWS = 0
@@ -13,18 +13,19 @@ class Source(enum.Enum):
     GOOGLE = 7
     WGSE = 8
 
+
 class Genome:
     """Represent a single reference genome"""
 
     def __init__(self) -> None:
         self.code: str = None
         self.source: Source = None
-        self.initial_name: Path = None
-        self.final_name: Path = None
+        self.initial_name: pathlib.Path = None
+        self.final_name: pathlib.Path = None
         self.url: str = None
         self.label: str = None
         self.sn_count: str = None
         self.sn_naming: str = None
         self.description: str = None
         
-        self.file: Path = None # "Inferred" name, not used for now
+        self.file: pathlib.Path = None  # "Inferred" name, not used for now
