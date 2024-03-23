@@ -37,7 +37,7 @@ import gzip
 
 empty_dict = [ 0, '00000000000000000000000000000000' ]
 NUM_BUCKETS = 1000      # Number of buckets per sequence (seqLN / NUM_BUCKETS == bucksize)
-NRUN_SIZE = 300         # Threshold to record Run of N's data (large vs small); Roughly the insert size
+NRUN_SIZE = 300         # Threshold to record Run of N's data. Roughly the insert size. Must be > line length
 
 # Ref Model passed in as first parameter. From file.fa.gz, find file.dict and create file_ncnt.csv, _nbin.csv, and _nreg.bed
 fagz_FN = None
@@ -112,7 +112,7 @@ def closeSeq():
               file=sys.stderr, flush=True)
 
     if inNrun:  # Finish open N region at tail of sequence
-        closeNrun()
+        closeNrun(0)
 
     if buckBPcnt:
         closeBucket()       # Always a bucket open; so close the last one still open
@@ -123,9 +123,10 @@ def closeSeq():
     # print entry for this sequence; including all 1000 buckets
     print(f'{seqSN}\t{seqLN:,}\t{seqNcnt:,}\t{seqNregs}\t{seqNmean:,.0f}\t{seqNSD:,.0f}\t{smlNregs}\t{bucksize}',
           end='', file=nf)  # partial line
+
     for index, bucket in enumerate(buckets):
-        val = round(math.log(bucket) if bucket > 1 else 0)
-        # changed to print as sparse list as most of the 1000 entries are zero; so now bucket start (in bp) then ln Ncnt
+        val = bucket #round(math.log(bucket) if bucket > 1 else 0)
+        # changed to print as sparse list as most of the 1000 entries are zero; so now bucket start (bp) then len (Ncnt)
         if val > 0:
             start = index * bucksize
             print(f'\t{start}\t{val}', end='', file=nf)
@@ -150,7 +151,7 @@ def openSeq(newseq):
     seqSN = newseq
     seqLN = seqdict.get(seqSN, empty_dict)[0]  # Using seq name, get # base pairs from seqdict entry
     if seqLN > 0:
-        print(f'***INFO: Processing {seqSN} in FASTA file {os.path.basename(fagz_FN)}',
+        print(f'***INFO: Processing sequence {seqSN} in FASTA file {os.path.basename(fagz_FN)}',
               file=sys.stdout, flush=True)
         seqBPcnt = 0
         seqNcnt = seqNregs = smlNregs = 0
@@ -183,7 +184,7 @@ def closeBucket():
     buckBPcnt = 0
 
 
-def closeNrun():
+def closeNrun(trailing):
     """
     Close out (possibly) open Nrun (either end of Nrun or end of Sequence with open Nrun)
     """
@@ -192,21 +193,25 @@ def closeNrun():
     seqNcnt += Nruncnt  # Running total of N's for sequence
     buckNcnt += Nruncnt  # Running total of N's for bucket
 
-    # We have found as many as 25% of N regions are 1-3 base pairs long.  Most of rest are a multiple of 10K up to
-    # >10**6 long. With a few scattered 50-1K runs in there. Mean and Std Dev get thrown off with the short runs.
+    # We have found as many as 25% of N regions are 1-3 base pairs long.  Most of the rest are a multiple of 10K up to
+    # >10**6 long. With a few scattered 50-1,000 N runs in there. Mean and Std Dev get thrown off with the short runs.
     # So we now report and count short and long runs separately. Only calculate Mean and Std Dev on >NRUN_SIZE regions.
     # NRUN_SIZE should be the insert size of most sequencing tools today.  Longer runs of N cannot be aligned across it.
-    # Nruncnt's, if greater than 10K, tend to be a multiple of 10K (or greater).
+    # Nruncnt's, if greater than 10K, tend to be a multiple of 10K (or greater). Trailing is only valid for
+    # Nruncnt > NRUN_SIZE
     if Nruncnt > NRUN_SIZE:
+
+        # Calculate a running average for nrun regions using Welford algorithm
         seqNregs += 1
         delta = Nruncnt - seqNmean
         seqNmean += delta / seqNregs
         delta2 = Nruncnt - seqNmean
         seqNM2 += delta * delta2
 
-        start = seqBPcnt - Nruncnt
-        print(f'{seqSN}\t{seqNregs}\t{start:,}\t{Nruncnt:,}', file=rf)      # like BED but in spreadsheet form
-        print(f'{seqSN}\t{start}\t{start+Nruncnt}', file=bf)            # Actual BED format file
+        start = seqBPcnt - Nruncnt - trailing
+        print(f'{seqSN}\t{seqNregs}\t{start:,}\t{Nruncnt:,}', file=rf)      # like BED but in table form and length
+        print(f'{seqSN}\t{start}\t{start+Nruncnt}', file=bf)                # Actual BED format (start, stop; no thous)
+
     else:
         smlNregs += 1
 
@@ -214,10 +219,10 @@ def closeNrun():
     Nruncnt = 0
 
 
-def processNrun(Nrunlen, keep_open):
+def processNrun(Nrunlen, keep_open, trailing):
     """
     Process a run of N's from a sequence line; 1 to line length in size. If keep_open True, then this is not the end
-    of a run; just an intermediate.
+    of a run; just an intermediate. Guaranteed not to overlap a bucket boundary. Trailing is remainder of seq after N's
     """
     global seqNcnt, inNrun, buckNcnt, Nruncnt
 
@@ -226,7 +231,7 @@ def processNrun(Nrunlen, keep_open):
     inNrun = keep_open
 
     if not inNrun:
-        closeNrun()
+        closeNrun(trailing)
 
 
 def processSeq(linebp):
@@ -243,19 +248,19 @@ def processSeq(linebp):
     """
     global inNrun, seqNcnt, seqBPcnt, buckBPcnt
 
-    seqBPcnt += len(linebp)
-    buckBPcnt += len(linebp)
-
     # If in Nrun but first base-pair is not an N, then close out the previous open Nrun
     if inNrun and linebp and linebp[0] != 'N':
-        closeNrun()
+        closeNrun(0)
+
+    seqBPcnt += len(linebp)
+    buckBPcnt += len(linebp)
 
     # Simply quickly finds all runs of N in line.  Does not say where they occur. May butt against the end(s).
     Nruns = re.findall(r'N+', linebp)
 
     while len(Nruns) > 0:
         keep_open = len(Nruns) == 1 and linebp[-1] == 'N'     # If last Nrun and line ends in N then keep open
-        processNrun(len(Nruns[0]), keep_open)
+        processNrun(len(Nruns[0]), keep_open, len(linebp)-len(Nruns[0]))
         del Nruns[0]
 
 
@@ -290,21 +295,21 @@ if __name__ == '__main__':
 
     # Dump header of output (stdout) TSV file result
     nf = open(nbuc_file, "w")
-    print(f'#WGS Extract generated runs of N summary file', file=nf)
+    print(f'#WGS Extract runs of N: Bucket Summary file', file=nf)
     print(f'#Processing Ref Model: {fagz_FBS} with >{NRUN_SIZE}bp runs of N and {NUM_BUCKETS} '
           f'buckets per sequence', file=nf)
     print(f'#Seq\tNumBP\tNumNs\tNumNreg\tNregSizeMean\tNregSizeStdDev\tSmlNreg\tBuckSize\t'
           f'Bucket Sparse List (bp start, ln value) when nonzero', file=nf)
 
     rf = open(nreg_file, "w")
-    print(f'#WGS Extract generated runs of N bin definition file (almost the same as BED)', file=rf)
+    print(f'#WGS Extract runs of N: BIN definition file', file=rf)
     print(f'#Processing Ref Model: {fagz_FBS} with >{NRUN_SIZE}bp of N runs', file=rf)
     print(f'#SN\tBinID\tStart\tSize', file=rf)
 
     bf = open(nbed_file, "w")
-    print(f'#WGS Extract generated runs of N bin BED file', file=bf)
+    print(f'#WGS Extract runs of N: BED file of bin definitions', file=bf)
     print(f'#Processing Ref Model: {fagz_FBS} with >{NRUN_SIZE}bp of N runs', file=bf)
-    print(f'#SN\tStart\tSize', file=bf)
+    print(f'#SN\tStart\tStop', file=bf)
 
     # Now read and process fagz_file (FASTA reference model) for runs of N
     seq = None      # Holds the current SN we are working on
@@ -316,7 +321,7 @@ if __name__ == '__main__':
             line = dirty_line.strip()
             line_len = len(line)
 
-            # Skip blank or haeder lines (header is in new FASTA / FASTQ standard not yet in use)
+            # Skip blank or header lines (header is in new FASTA / FASTQ standard not yet in use)
             if line_len == 0 or line[0] == '#':
                 continue
 
