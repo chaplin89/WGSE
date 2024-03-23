@@ -157,6 +157,13 @@ def test_run_end_to_end_non_divisible():
     sut.open_run(0)
     sut.close_run(1000)
     buckets = sut.split_in_buckets(3)
-    for index in range(10):
-        assert index in buckets
-        assert buckets[index] == 100
+    assert 0 in buckets
+    assert 1 in buckets
+    assert 2 in buckets    
+    assert 3 in buckets
+    
+    assert len(buckets) == 4
+    assert buckets[0] == 333
+    assert buckets[1] == 333
+    assert buckets[2] == 333
+    assert buckets[3] == 2

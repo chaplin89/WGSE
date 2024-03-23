@@ -37,7 +37,7 @@ import re
 import gzip
 import logging
 import time
-from typing import Dict, List, TextIO
+from typing import Callable, Dict, List, TextIO
 from collections import OrderedDict
 from statistics import mean, stdev
 
@@ -117,8 +117,8 @@ class Sequence:
         self._current_run = Run()
         self._current_run.open(position)
 
-    def filter_runs(self, length_greater_than: int):
-        return [x for x in self.runs if x.length > length_greater_than]
+    def filter(self, criteria: Callable[[Run], bool] ):
+        return [x for x in self.runs if criteria(x)]
 
     def split_in_buckets(self, buckets_number: int) -> OrderedDict[int, int]:
         """_summary_
@@ -146,11 +146,11 @@ class Sequence:
 
             for bucket in range(index_bucket_start, index_bucket_end + 1):
                 start_bucket_offset = max(bucket * bucket_size, start)
-                end_bucket_offset = min(start_bucket_offset + bucket_size - 1, end)
+                end_bucket_offset = min(bucket * bucket_size + bucket_size - 1, end)
                 if bucket not in buckets:
                     buckets[bucket] = 0
                 runs_count = end_bucket_offset - start_bucket_offset
-                buckets[bucket] += runs_count + 1
+                buckets[bucket] += runs_count
         return buckets
 
     def close_run(self, position: int) -> None:
@@ -178,6 +178,8 @@ class Sequence:
         self.runs.append(self._current_run)
         self._current_run = None
 
+    def end(self, position: int) -> None:
+        pass
 
 class Stats:
     def __init__(self, long_threshold: int, buckets_number, model: str) -> None:
@@ -192,7 +194,7 @@ class Stats:
             f"#SN\tBinID\tStart\tSize\n",
         ]
         for sequence in sequences:
-            for index, run in enumerate(sequence.filter_runs(self._long_threshold)):
+            for index, run in enumerate(sequence.filter(lambda x: x.length > self._long_threshold)):
                 row = f"{sequence.name}\t{index+1}\t{run.start:,}\t{run.length:,}\n"
                 lines.append(row)
         return lines
@@ -205,7 +207,7 @@ class Stats:
         ]
 
         for sequence in sequences:
-            for run in sequence.filter_runs(self._long_threshold):
+            for run in sequence.filter(lambda x: x.length > self._long_threshold):
                 row = f"{sequence.name}\t{run.start}\t{run.start+run.length}\n"
                 lines.append(row)
         return lines
@@ -217,21 +219,30 @@ class Stats:
             f"#Seq\tNumBP\tNumNs\tNumNreg\tNregSizeMean\tNregSizeStdDev\tSmlNreg\tBuckSize\tBucket Sparse List (bp start, ln value) when nonzero\n",
         ]
         for sequence in sequences:
-            long_runs = sequence.filter_runs(self._long_threshold)
-            lengths = [x.length for x in long_runs]
-            average_length = mean(lengths) if len(lengths) > 0 else 0
-            standard_deviation = stdev(lengths) if len(lengths) > 1 else 0
-            total = sum(lengths)
-
-            row = f"{sequence.name}\tNumBP\t{total}\t{len(lengths)}\t{average_length}\t{standard_deviation}\tSmlNreg\tBuckSize\t\n"
-
-            for index, bucket in range(sequence.split_in_buckets(self._buckets_number)):
-                val = round(math.log(bucket) if bucket > 1 else 0)
-                # changed to print as sparse list as most of the 1000 entries are zero; so now bucket start (bp) then len (Ncnt)
+            bucket_lenght = int(floor(sequence.length / self._buckets_number))
+            
+            long_runs = sequence.filter(lambda x: x.length > self._long_threshold)
+            short_runs = sequence.filter(lambda x: x.length <= self._long_threshold)
+            
+            long_run_lengths = [x.length for x in long_runs]
+            short_run_lenghts = [x.length for x in short_runs]
+            
+            long_run_avg = int(mean(long_run_lengths)) if len(long_run_lengths) > 0 else 0
+            long_run_stdev = int(stdev(long_run_lengths)) if len(long_run_lengths) > 1 else 0
+            
+            long_runs_total = sum(long_run_lengths)
+            short_runs_total = sum(short_run_lenghts)
+            
+            row = f"{sequence.name}\t{sequence.length}\t{long_runs_total}\t{len(long_run_lengths)}\t{long_run_avg}\t{long_run_stdev}\t{short_runs_total}\t{bucket_lenght}"
+            
+            buckets = sequence.split_in_buckets(self._buckets_number).items()
+            for index, bucket_count in buckets:
+                val = bucket_count #round(math.log(bucket_count) if bucket_count > 1 else 0)
+                start = index * bucket_lenght
+                
                 if val > 0:
-                    start = index * bucksize
-                    lines.append(f"\t{start}\t{val}")
-
+                    row += f"\t{start}\t{val}"
+            row += "\n"
             lines.append(row)
         return lines
 
@@ -270,8 +281,8 @@ class UnknownBasesStats:
                 sequence_name = line.split()[0][1:]
                 sequence_length = int(line.split()[2].split(":")[4])
                 if len(sequences) > 0:
-                    pass
-                    # return list(sequences.values())
+                    #pass
+                    return list(sequences.values())
                 logging.info(f"Processing sequence {sequence_name}")
                 if sequence_name in sequences:
                     raise RuntimeError(f"Found a duplicated sequence: {sequence_name}")
@@ -304,6 +315,7 @@ class UnknownBasesStats:
         # File was terminated but there's still an open run: close
         if current_sequence.is_run_open():
             current_sequence.close_run(position)
+        current_sequence.end(position)
         return list(sequences.values())
 
     def _count_unknown_bases(self):
@@ -334,7 +346,7 @@ if __name__ == "__main__":
         "--reference",
         help="Indicate the path of the bgzip compressed reference genome",
         type=Path,
-        default=Path("reference\\genomes\\hs37d5.fa.gz"),
+        default=Path("reference\\genomes\\seq1.txt.gz"),
     )
     parser.add_argument(
         "--verbose", help="Set logging level [1,5]", type=int, default=2
