@@ -64,7 +64,7 @@ def test_filter():
     sequence.close_run(150)
     sequence.open_run(300)
     sequence.close_run(449)
-    sut = sequence.filter_runs(149)
+    sut = sequence.filter(lambda x: x.length > 149)
     # Assert
     assert len(sut) == 1
     assert sut[0].start == 0
@@ -87,14 +87,14 @@ def test_single_bucket():
     # Arrange
     sequence = Sequence("Foo", 1000)
     sequence.open_run(0)
-    sequence.close_run(99)
+    sequence.close_run(100)
     # Act
     # 1000/10 = 100 -> 10 buckets with lenght of 100
     sut = sequence.split_in_buckets(10)
     # Assert
     assert 0 in sut
     assert len(sut) == 1
-    assert sut[0] == 100
+    assert sut[0] == 99
     
 def test_more_run_in_single_bucket():
     # Arrange
@@ -110,7 +110,7 @@ def test_more_run_in_single_bucket():
     # Assert
     assert 0 in sut
     assert len(sut) == 1
-    assert sut[0] == 61
+    assert sut[0] == 59
     
 def test_run_in_multiple_buckets():
     # Arrange
@@ -124,8 +124,8 @@ def test_run_in_multiple_buckets():
     assert 0 in sut
     assert 1 in sut
     assert len(sut) == 2
-    assert sut[0] == 100 # 0 -> 99
-    assert sut[1] == 51 # 99 -> 151
+    assert sut[0] == 99 # 0 -> 99
+    assert sut[1] == 50 # 99 -> 151
     
 def test_too_many_buckets():
     with pytest.raises(ValueError) as e:
@@ -148,7 +148,7 @@ def test_run_end_to_end_divisible():
     buckets = sut.split_in_buckets(10)
     for index in range(10):
         assert index in buckets
-        assert buckets[index] == 100
+        assert buckets[index] == 99
 
 
 def test_run_end_to_end_non_divisible():
@@ -163,7 +163,7 @@ def test_run_end_to_end_non_divisible():
     assert 3 in buckets
     
     assert len(buckets) == 4
-    assert buckets[0] == 333
-    assert buckets[1] == 333
-    assert buckets[2] == 333
-    assert buckets[3] == 2
+    assert buckets[0] == 332
+    assert buckets[1] == 332
+    assert buckets[2] == 332
+    assert buckets[3] == 1

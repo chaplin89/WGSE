@@ -147,9 +147,11 @@ class Sequence:
             for bucket in range(index_bucket_start, index_bucket_end + 1):
                 start_bucket_offset = max(bucket * bucket_size, start)
                 end_bucket_offset = min(bucket * bucket_size + bucket_size - 1, end)
+                runs_count = end_bucket_offset - start_bucket_offset
+                if runs_count < 1:
+                    continue
                 if bucket not in buckets:
                     buckets[bucket] = 0
-                runs_count = end_bucket_offset - start_bucket_offset
                 buckets[bucket] += runs_count
         return buckets
 
@@ -280,9 +282,6 @@ class UnknownBasesStats:
                     current_sequence.close_run(position)
                 sequence_name = line.split()[0][1:]
                 sequence_length = int(line.split()[2].split(":")[4])
-                if len(sequences) > 0:
-                    #pass
-                    return list(sequences.values())
                 logging.info(f"Processing sequence {sequence_name}")
                 if sequence_name in sequences:
                     raise RuntimeError(f"Found a duplicated sequence: {sequence_name}")
