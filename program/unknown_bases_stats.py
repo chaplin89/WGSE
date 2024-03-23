@@ -76,9 +76,11 @@ class Sequence:
             name (str): _description_
             length (int): _description_
         """
+        if length <= 0:
+            raise IndexError("Length should be greater than zero.")
         self.runs: List[Run] = []
         self.name: str = name
-        self.length = length
+        self.length: int = length
         self._current_run: Run = None
 
     def is_run_open(self) -> bool:
@@ -96,35 +98,52 @@ class Sequence:
             position (int): Position where the run is starting.
 
         Raises:
-            RuntimeError: Opening a sequence that is already opened.
+            RuntimeError: Opening a sequence that is already opened,
+            opening a run with a negative position,
+            opening a run that is overlapping with the previous.
         """
         if self._current_run is not None:
             raise RuntimeError("Trying to open a an already opened run of Ns.")
+        if position < 0:
+            raise IndexError("Trying to open a run with a negative position.")
         # Ensure no overlapping runs
         if len(self.runs) > 0:
             previous_end = self.runs[-1].start + self.runs[-1].length
             if position < previous_end + 1:
-                raise RuntimeError("Trying to open a run overlapping with previous runs.")
-        
+                raise ValueError(
+                    "Trying to open a run overlapping with previous runs."
+                )
+
         self._current_run = Run()
         self._current_run.open(position)
 
     def filter_runs(self, length_greater_than: int):
         return [x for x in self.runs if x.length > length_greater_than]
-    
-    def split_in_buckets(self, buckets_number : int) -> OrderedDict[int, int]:
+
+    def split_in_buckets(self, buckets_number: int) -> OrderedDict[int, int]:
+        """_summary_
+
+        Args:
+            buckets_number (int): _description_
+
+        Raises:
+            RuntimeError: _description_
+
+        Returns:
+            OrderedDict[int, int]: _description_
+        """
         if buckets_number > self.length:
-            raise RuntimeError(f"Number of buckets should be at least {self.length}")
-        
+            raise ValueError(f"Number of buckets should be at least {self.length}")
+
         buckets = OrderedDict()
-        bucket_size = self.length / buckets_number
-        
+        bucket_size = int(floor(self.length / buckets_number))
+
         for run in self.runs:
             start = run.start
             end = run.start + run.length
-            index_bucket_start =  floor(start / bucket_size)
-            index_bucket_end = floor(end / bucket_size)
-            
+            index_bucket_start = int(floor(start / bucket_size))
+            index_bucket_end = int(floor(end / bucket_size))
+
             for bucket in range(index_bucket_start, index_bucket_end + 1):
                 start_bucket_offset = max(bucket * bucket_size, start)
                 end_bucket_offset = min(start_bucket_offset + bucket_size - 1, end)
@@ -149,6 +168,10 @@ class Sequence:
         if position <= self._current_run.start:
             raise RuntimeError(
                 f"Trying to close a run of Ns with position {position} and start {self._current_run.start}"
+            )
+        if position > self.length:
+            raise RuntimeError(
+                f"Trying to close a run with a position that is greater than the whole length of the sequence."
             )
         run_length = position - self._current_run.start
         self._current_run.close(run_length)
@@ -199,18 +222,19 @@ class Stats:
             average_length = mean(lengths) if len(lengths) > 0 else 0
             standard_deviation = stdev(lengths) if len(lengths) > 1 else 0
             total = sum(lengths)
-            
+
             row = f"{sequence.name}\tNumBP\t{total}\t{len(lengths)}\t{average_length}\t{standard_deviation}\tSmlNreg\tBuckSize\t\n"
-            
+
             for index, bucket in range(sequence.split_in_buckets(self._buckets_number)):
                 val = round(math.log(bucket) if bucket > 1 else 0)
                 # changed to print as sparse list as most of the 1000 entries are zero; so now bucket start (bp) then len (Ncnt)
                 if val > 0:
                     start = index * bucksize
-                    lines.append(f'\t{start}\t{val}')
-            
+                    lines.append(f"\t{start}\t{val}")
+
             lines.append(row)
         return lines
+
 
 class UnknownBasesStats:
     def __init__(
@@ -244,7 +268,7 @@ class UnknownBasesStats:
                 if current_sequence is not None and current_sequence.is_run_open():
                     current_sequence.close_run(position)
                 sequence_name = line.split()[0][1:]
-                sequence_length = int(line.split()[2].split(':')[4])
+                sequence_length = int(line.split()[2].split(":")[4])
                 if len(sequences) > 0:
                     pass
                     # return list(sequences.values())
