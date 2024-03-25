@@ -1,9 +1,10 @@
-
 import enum
 from genome import Genome, Source
 from pathlib import Path
+import urllib.parse
 from typing import Tuple, List
 import csv
+import posixpath
 
 
 _STRING_TO_SOURCE = {
@@ -18,6 +19,7 @@ _STRING_TO_SOURCE = {
     "WGSE": Source.WGSE,
 }
 
+
 class CsvFields(enum.IntEnum):
     CODE = 0
     SOURCE = 1
@@ -28,6 +30,7 @@ class CsvFields(enum.IntEnum):
     SN_COUNT = 6
     SN_NAMING = 7
     DESCRIPTION = 8
+
 
 class CsvMetadataLoader:
     _EXPECTED_CSV_FIELDS = [
@@ -84,12 +87,47 @@ class CsvMetadataLoader:
                 genome_.sn_count = row[CsvFields.SN_COUNT]
                 genome_.sn_naming = row[CsvFields.SN_NAMING]
                 genome_.description = row[CsvFields.DESCRIPTION]
-                genome_.final_name = row[CsvFields.FINAL_NAME]
-                genome_.initial_name = Path(row[CsvFields.INITIAL_NAME])
-                genome_.file = Path(genome_.code + "_" + genome_.source.name + "".join(genome_.initial_name.suffixes))
+                genome_.final_name = ""  # row[CsvFields.FINAL_NAME]
+                genome_.initial_name = ""  # Path(row[CsvFields.INITIAL_NAME])
                 
+                if genome_.initial_name == "":
+                    extension = self.get_compression_extension(genome_.url)
+                    genome_.initial_name = Path(
+                        f"{genome_.code}_{genome_.source.name}.fa{extension}"
+                    )
+                if genome_.final_name == "":
+                    genome_.final_name = self.determine_target_name(
+                        genome_.initial_name
+                    )
+
                 genomes.append(genome_)
             return meta, genomes
+
+    def determine_target_name(self, file: Path):
+        if file.suffix in [".bz2", ".bz", ".zip", ".7z"]:
+            gz_compressed = file.with_suffix(".gz")
+        elif file.suffix != ".gz":
+            # Likely uncompressed, just add .gz
+            gz_compressed = Path(str(file) + ".gz")
+        else:
+            # gzip case, same name
+            gz_compressed = file
+        
+        return gz_compressed
+
+    def get_compression_extension(self, url: str):
+        parsed = urllib.parse.urlparse(url)
+        recognized_extensions = [
+            ".zip",
+            ".7z",
+            ".gz",
+            ".bz2"
+        ]
+        
+        for extension in recognized_extensions:
+            if parsed.path.endswith(extension):
+                return extension
+        return ""
 
     def filter(
         self, id: str = None, source: Source = None, file_name: str = None

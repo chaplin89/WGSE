@@ -229,15 +229,15 @@ class Stats:
             long_run_lengths = [x.length for x in long_runs]
             short_run_lenghts = [x.length for x in short_runs]
 
+            long_runs_total = sum(long_run_lengths)
+            short_runs_total = sum(short_run_lenghts)
+            
             long_run_avg = 0
             long_run_stdev = 0
 
             if len(long_run_lengths) > 1:
                 long_run_avg = int(statistics.mean(long_run_lengths))
                 long_run_stdev = int(statistics.stdev(long_run_lengths))
-
-            long_runs_total = sum(long_run_lengths)
-            short_runs_total = sum(short_run_lenghts)
 
             row = f"{sequence.name}\t{sequence.length}\t{long_runs_total}\t{len(long_run_lengths)}\t{long_run_avg}\t{long_run_stdev}\t{short_runs_total}\t{bucket_lenght}"
 

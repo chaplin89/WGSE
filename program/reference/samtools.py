@@ -7,11 +7,11 @@ class Samtools:
 
     def __init__(self, installation_directory: Path) -> None:
         self._installation_directory = installation_directory
-        self._htsfile = self._installation_directory.joinpath("htsfile")
-        self._samtools = self._installation_directory.joinpath("samtools")
-        self._tabix = self._installation_directory.joinpath("tabix")
-        self._bgzip = self._installation_directory.joinpath("bgzip")
-        self._bcftools = self._installation_directory.joinpath("bcftools")
+        self._htsfile = str(self._installation_directory.joinpath("htsfile"))
+        self._samtools = str(self._installation_directory.joinpath("samtools"))
+        self._tabix = str(self._installation_directory.joinpath("tabix"))
+        self._bgzip = str(self._installation_directory.joinpath("bgzip"))
+        self._bcftools = str(self._installation_directory.joinpath("bcftools"))
 
     def get_file_type(self, path: Path):
         process = subprocess.run([self._htsfile, path], capture_output=True, check=True)
@@ -53,7 +53,7 @@ class Samtools:
         process = subprocess.run(arguments, check=True, capture_output=True)
         return process.stdout.decode("utf-8")
 
-    def bgzip_compress(self, path: Path, output: Path = None):
+    def bgzip_compress(self, path: Path) -> Path:
         """Wrapper around bgzip executable, used to compress a file
         in the bgzip format.
 
@@ -64,17 +64,19 @@ class Samtools:
         Returns:
             str: Output of the bgzip command.
         """
-        arguments = [self._bgzip, "-if", path]
+        arguments = [self._bgzip, "-if", str(path), "-@", "32"]
         process = subprocess.run(arguments, check=True, capture_output=True)
-        return process.stdout.decode("utf-8")
+        return Path(str(path) + ".gz")
 
-    def tab_indexer(self,):
+    def tab_indexer(
+        self,
+    ):
         """Generic indexer for TAB-delimited genome position files"""
         arguments = [self._tabix]
         process = subprocess.run(arguments)
         return process.stdout.decode("utf-8")
 
-    def idxstats(self, input:Path):
+    def idxstats(self, input: Path):
         """Generate BAM index statistics"""
         arguments = [self._samtools, input]
         process = subprocess.run(arguments)

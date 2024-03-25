@@ -13,6 +13,7 @@ class Type(enum.Enum):
     RAZF_GZIP = 5
     DECOMPRESSED = 6
 
+
 class FileTypeChecker:
 
     _EXT_TO_TYPE = {
@@ -60,3 +61,5 @@ class FileTypeChecker:
         if extension in FileTypeChecker._EXT_TO_TYPE:
             return FileTypeChecker._EXT_TO_TYPE[extension]
         return None
+
+    

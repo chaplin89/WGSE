@@ -23,13 +23,13 @@ class Downloader:
         return False
 
     def download(self, genome: Genome, callback: any = False) -> None:
-        """Download a genome, even if the file already exist.
+        """Download a genome, overwrite if it exist.
 
         Args:
             genome (Genome): Genome to download
             callback (any, optional): Function to call for progress.
                 None disable progress reporting, False enable pycurl
-                default progress reporting. Defaults to None.
+                default progress reporting. Defaults to False.
         """
 
         try:

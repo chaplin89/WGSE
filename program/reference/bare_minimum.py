@@ -26,18 +26,21 @@ class ImportScanner:
             scanned.append(file)
         return dependencies
 
+
 if __name__ == "__main__":
     cygwin_root = Path("cygwin64", "usr", "local", "bin")
-    
-    files = [cygwin_root.joinpath("bwa.exe"),
-             cygwin_root.joinpath("bgzip.exe"),
-             cygwin_root.joinpath("samtools.exe"),
-             cygwin_root.joinpath("htsfile.exe"),
-             cygwin_root.joinpath("bcftools.exe"),
-             cygwin_root.joinpath("tabix.exe"),
-             cygwin_root.joinpath("minimap2.exe"),
-             cygwin_root.joinpath("fastp.exe")]
-    
+
+    files = [
+        cygwin_root.joinpath("bwa.exe"),
+        cygwin_root.joinpath("bgzip.exe"),
+        cygwin_root.joinpath("samtools.exe"),
+        cygwin_root.joinpath("htsfile.exe"),
+        cygwin_root.joinpath("bcftools.exe"),
+        cygwin_root.joinpath("tabix.exe"),
+        cygwin_root.joinpath("minimap2.exe"),
+        cygwin_root.joinpath("fastp.exe"),
+    ]
+
     destination_root = Path("bare_minimum")
     if not destination_root.exists():
         destination_root.mkdir()
