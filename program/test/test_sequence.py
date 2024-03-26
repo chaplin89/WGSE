@@ -1,5 +1,5 @@
 import pytest
-from program.unknown_bases_stats import Sequence
+from program.reference.unknown_bases_stats import Sequence
 
 
 def test_sequence_with_invalid_length():

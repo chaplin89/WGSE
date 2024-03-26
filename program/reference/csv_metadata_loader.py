@@ -4,7 +4,6 @@ from pathlib import Path
 import urllib.parse
 from typing import Tuple, List
 import csv
-import posixpath
 
 
 _STRING_TO_SOURCE = {

@@ -1,6 +1,6 @@
 from pathlib import Path
 import pytest
-from program.unknown_bases_stats import UnknownBasesStats
+from program.reference.unknown_bases_stats import UnknownBasesStats
 
 class GzipFileObject:
     _LINES = []
