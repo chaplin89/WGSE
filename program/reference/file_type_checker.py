@@ -1,5 +1,5 @@
 from pathlib import Path
-from samtools import Samtools
+from .samtools import Samtools
 import logging
 import enum
 

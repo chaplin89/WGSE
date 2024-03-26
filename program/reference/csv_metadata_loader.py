@@ -1,5 +1,5 @@
 import enum
-from genome import Genome, Source
+from .genome import Genome, Source
 from pathlib import Path
 import urllib.parse
 from typing import Tuple, List
@@ -16,32 +16,47 @@ _STRING_TO_SOURCE = {
     "YSEQ": Source.YSEQ,
     "GOOG": Source.GOOGLE,
     "WGSE": Source.WGSE,
+    "JHU": Source.YHU
 }
 
 
 class CsvFields(enum.IntEnum):
-    CODE = 0
-    SOURCE = 1
-    FINAL_NAME = 2
-    INITIAL_NAME = 3
-    URL = 4
-    LABEL = 5
-    SN_COUNT = 6
-    SN_NAMING = 7
-    DESCRIPTION = 8
+    INDEX = 0
+    CODE = 1
+    SN_COUNT = 2
+    SN_NAMING = 3
+    BUILD = 4
+    CLASS = 5
+    SOURCE = 6
+    FINAL_NAME = 7
+    INITIAL_NAME = 8
+    URL = 9
+    MENU = 10
+    DESCRIPTION = 11
+    FINAL_MD5 = 12
+    INITIAL_MD5 = 13
+    FINAL_SIZE = 14
+    INITIAL_SIZE = 15
 
 
 class CsvMetadataLoader:
     _EXPECTED_CSV_FIELDS = [
-        "Pyth Code",
-        "Source",
-        "Final File Name",
-        "Initial File Name",
-        "URL",
-        "Library Menu Label",
+        "0",
+        "Pyth Code (IMPORTANT: no commas in the file anywhere!)",
         "SN Count",
-        "SN Naming",
-        "Description",
+        "SN Name Type",
+        "Build",
+        "Class",
+        "Source",
+        "Final File Name (dot means same as initial; unique unless alt download site)",
+        "Initial File Name (as downloaded; rename to final before processing)",
+        "URL (unique entries; never should be a duplicate)",
+        "Menu Selection",
+        "Description  (If you add a column here then update zcommon.sh and referencelibrary.py)",
+        "MD5Sum Final",
+        "MD5Sum Initial",
+        "Final Size",
+        "Init Size"
     ]
 
     def __init__(self, csv_path: Path) -> None:
@@ -82,12 +97,16 @@ class CsvMetadataLoader:
                 genome_.code = row[CsvFields.CODE]
                 genome_.source = _STRING_TO_SOURCE[row[CsvFields.SOURCE]]
                 genome_.url = row[CsvFields.URL]
-                genome_.label = row[CsvFields.LABEL]
+                genome_.label = row[CsvFields.MENU]
                 genome_.sn_count = row[CsvFields.SN_COUNT]
                 genome_.sn_naming = row[CsvFields.SN_NAMING]
                 genome_.description = row[CsvFields.DESCRIPTION]
                 genome_.final_name = ""  # row[CsvFields.FINAL_NAME]
                 genome_.initial_name = ""  # Path(row[CsvFields.INITIAL_NAME])
+                genome_.initial_size = int(row[CsvFields.INITIAL_SIZE])
+                genome_.final_size = int(row[CsvFields.FINAL_SIZE])
+                genome_.initial_md5 = row[CsvFields.INITIAL_MD5]
+                genome_.final_md5 = row[CsvFields.FINAL_MD5]
                 
                 if genome_.initial_name == "":
                     extension = self.get_compression_extension(genome_.url)

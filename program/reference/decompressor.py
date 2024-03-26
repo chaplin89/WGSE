@@ -3,10 +3,10 @@ import zipfile
 import gzip
 import bz2
 import shutil
-from genome import Genome
-from samtools import Samtools
+from .genome import Genome
+from .samtools import Samtools
 from pathlib import Path
-from file_type_checker import Type, FileTypeChecker
+from .file_type_checker import Type, FileTypeChecker
 
 
 class Decompressor:

@@ -1,5 +1,4 @@
-from genome import Genome
-from samtools import Samtools
+from .samtools import Samtools
 from pathlib import Path
 
 

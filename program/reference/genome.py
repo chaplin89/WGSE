@@ -11,6 +11,7 @@ class Source(enum.Enum):
     YSEQ = 6
     GOOGLE = 7
     WGSE = 8
+    YHU = 9
 
 class Genome:
     """Represent a single reference genome"""
@@ -25,3 +26,14 @@ class Genome:
         self.description: str = None
         self.initial_name: pathlib.Path = None
         self.final_name: pathlib.Path = None
+        self.gzi: pathlib.Path = None
+        self.nbuc : pathlib.Path = None
+        self.nreg : pathlib.Path = None
+        self.bed : pathlib.Path = None
+        self.nbin : pathlib.Path = None
+        self.fai : pathlib.Path = None
+        self.dict : pathlib.Path = None
+        self.initial_md5: str = None
+        self.final_md5: str = None
+        self.initial_size: int = None
+        self.final_size: int = None

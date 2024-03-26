@@ -1,6 +1,6 @@
 import pycurl
-from genome import Genome
-
+from .genome import Genome
+import hashlib
 
 class Downloader:
     def __init__(self) -> None:
@@ -19,6 +19,7 @@ class Downloader:
             bool: True if the genome needs to be downloaded, False otherwise.
         """
         if not genome.initial_name.exists():
+            hashlib.md5(open('filename.exe','rb').read()).hexdigest()
             return True
         return False
 
