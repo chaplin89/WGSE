@@ -31,11 +31,6 @@ class Samtools:
             self._bgzip,
             self._bcftools,
         ]
-        
-        for file in files_collection:
-            if not Path(file).exists():
-                return
-                raise FileNotFoundError(f"Unable to find file {file} when building samtools")
 
     def get_file_type(self, path: Path):
         process = subprocess.run([self._htsfile, path], capture_output=True, check=True)

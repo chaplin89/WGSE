@@ -55,8 +55,6 @@ class Sequence:
         return [x for x in self.runs if criteria(x)]
 
     def close_run(self, position: int) -> None:
-        if self._is_ended:
-            raise RuntimeError("Trying to close a run on an ended sequence.")
         if self._current_run is None:
             raise RuntimeError("Trying to close an already closed run of Ns.")
         if position <= self._current_run.start:
@@ -78,7 +76,7 @@ class Sequence:
         self._is_ended = True
 
         if position != self.length:
-            raise RuntimeError(
+            raise ValueError(
                 f"Expected {self.length} base pairs in this sequence but processed {position}."
             )
 
@@ -92,7 +90,7 @@ class FastaFile:
         self.genome = genome
         if not self.genome.dict.exists():
             raise RuntimeError(
-                f"Unable to find dictionary path in {self.genome.dict.name}."
+                f"Unable to find dictionary in {self.genome.dict.name}."
             )
         self._dict = FastaDictionary(self.genome.dict)
 
