@@ -1,6 +1,7 @@
 import enum
 import pathlib
 
+
 class Source(enum.Enum):
     AWS = 0
     NIH = 1
@@ -13,10 +14,11 @@ class Source(enum.Enum):
     WGSE = 8
     YHU = 9
 
+
 class Genome:
     """Represent a single reference genome"""
 
-    def __init__(self) -> None:
+    def __init__(self, path: pathlib.Path = None) -> None:
         self.code: str = None
         self.source: Source = None
         self.url: str = None
@@ -25,15 +27,64 @@ class Genome:
         self.sn_naming: str = None
         self.description: str = None
         self.initial_name: pathlib.Path = None
-        self.final_name: pathlib.Path = None
-        self.gzi: pathlib.Path = None
-        self.nbuc : pathlib.Path = None
-        self.nreg : pathlib.Path = None
-        self.bed : pathlib.Path = None
-        self.nbin : pathlib.Path = None
-        self.fai : pathlib.Path = None
-        self.dict : pathlib.Path = None
+        self.final_name: pathlib.Path = path
         self.initial_md5: str = None
         self.final_md5: str = None
         self.initial_size: int = None
         self.final_size: int = None
+
+    @property
+    def no_exts(self):
+        if self.final_name is None:
+            return None
+        name = str(self.final_name)
+        extensions = "".join(self.final_name.suffixes)
+        return name.rstrip(extensions)
+    
+    @property
+    def all(self):
+        return [
+            self.final_name,
+            self.gzi,
+            self.nbin,
+            self.nbuc,
+            self.bed,
+            self.fai,
+            self.dict,
+        ]
+
+    @property
+    def gzi(self):
+        if self.final_name is None:
+            return None
+        return pathlib.Path(str(self.final_name) + ".gzi")
+
+    @property
+    def nbin(self):
+        if self.final_name is None:
+            return None
+        return pathlib.Path(self.no_exts + "_nbin.csv")
+
+    @property
+    def nbuc(self):
+        if self.final_name is None:
+            return None
+        return pathlib.Path(self.no_exts + "_nbuc.csv")
+
+    @property
+    def bed(self):
+        if self.final_name is not None:
+            return pathlib.Path(self.no_exts + "_nreg.bed")
+        return None
+
+    @property
+    def fai(self):
+        if self.final_name is None:
+            return None
+        return pathlib.Path(str(self.final_name) + ".fai")
+
+    @property
+    def dict(self):
+        if self.final_name is None:
+            return None
+        return pathlib.Path(self.no_exts + ".dict")

@@ -7,4 +7,4 @@ class Compressor:
         self._samtools = samtools
 
     def compress(self, input_file: Path) -> Path:
-            return self._samtools.bgzip_compress(str(input_file))
+            return self._samtools.bgzip(str(input_file))

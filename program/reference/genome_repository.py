@@ -2,11 +2,14 @@ import hashlib
 import logging
 from pathlib import Path
 from typing import List
+from .samtools import BgzipAction, Samtools
 from .decompressor import Decompressor
 from .compressor import Compressor
 from .downloader import Downloader
 from .file_type_checker import FileTypeChecker, Type
 from .genome import Genome
+from .n_statistics_files import NStatisticsFiles
+
 
 class GenomeRepository:
     """Manage a repository of reference genome files"""
@@ -19,6 +22,7 @@ class GenomeRepository:
         downloader_: Downloader,
         compressor_: Compressor,
         decompressor_: Decompressor,
+        samtools_ : Samtools,
     ) -> None:
         self._reference_genomes = reference_genomes
         self._library_path = library_path
@@ -26,6 +30,7 @@ class GenomeRepository:
         self._downloader = downloader_
         self._decompressor = decompressor_
         self._compressor = compressor_
+        self._samtools = samtools_
         self._rebase_reference_genomes()
 
     def _rebase_reference_genomes(self):
@@ -33,7 +38,7 @@ class GenomeRepository:
             genome.initial_name = self._library_path.joinpath(genome.initial_name)
             genome.final_name = self._library_path.joinpath(genome.final_name)
 
-    def to_bgzip(self, genome: Genome):
+    def _to_bgzip(self, genome: Genome):
         type = self._type_checker.get_type(genome.initial_name)
 
         if type == Type.RAZF_GZIP:
@@ -47,72 +52,96 @@ class GenomeRepository:
         if genome.final_name.exists():
             final_type = self._type_checker.get_type(genome.final_name)
             if final_type == Type.BGZIP:
-                logging.info(f"{genome.code}: bgzip file found. No further conversions needed.")
+                logging.info(
+                    f"{genome.code}: bgzip file found. No further conversions needed."
+                )
                 return
-        
+
         if type != Type.DECOMPRESSED:
             logging.info(f"{genome.code}: Decompressing.")
             decompressed = self._decompressor.decompress(genome.initial_name)
         else:
-            logging.info(f"{genome.code}: Is already decompressed. Skipping decompression.")
+            logging.info(
+                f"{genome.code}: Is already decompressed. Skipping decompression."
+            )
             decompressed = genome.initial_name
 
         logging.info(f"{genome.code}: Compressing to bgzip.")
         compressed = self._compressor.compress(decompressed)
-        # decompressed no longer exist at this point
-        
+        # Decompressed no longer exist at this point
+
+        # Need to consider that initial and final name may be identical.
         if genome.initial_name.exists() and compressed != genome.initial_name:
             genome.initial_name.unlink()
 
         if compressed != genome.final_name:
             compressed.rename(genome.final_name)
-            
+
     def _post_download(self, genome: Genome):
-        pass
-    
+        if not genome.gzi.exists():
+            index = self._samtools.bgzip(genome.final_name, BgzipAction.Reindex)
+            if index != genome.gzi:
+                index.rename(genome.gzi)
+        if not genome.dict.exists():
+            self._samtools.make_dictionary(genome.final_name, genome.dict)
+        if not all([genome.bed.exists(), genome.nbin.exists(), genome.nbuc.exists()]):
+            pass
+            #ub = NStatisticsFiles(genome.final_name, genome.dict)
+            #ub.get_stats()
+
+    def _check_file_md5(self, path: Path, md5: str):
+        if path.exists():
+            md5_algorithm = hashlib.md5()
+            with path.open("rb") as f:
+                while chunk := f.read(4096):
+                    md5_algorithm.update(chunk)
+
+            if md5_algorithm.hexdigest() == md5:
+                return True
+            return False
+        return None
+
     def _download(self, genome: Genome):
-        if genome.initial_name.exists():
-            md5 = hashlib.md5(genome.initial_name.open("rb").read()).hexdigest()
-            if md5 == genome.initial_md5:
-                logging.info(f"{genome.code}: Already downloaded.")
-                return
-            logging.info(f"{genome.code}: Downloaded file is corrupted. Downloading again.")
-        
         self._downloader.download(genome, None)
 
     def add_to_library(self, genome: Genome):
         self._get_bgzip(genome)
         self._post_download(genome)
-    
+
     def _get_bgzip(self, genome: Genome):
         """Add a genome to the library
 
         Args:
             genome (Genome): _description_
         """
-        if genome.final_name.exists():
+        md5_matches = self._check_file_md5(genome.final_name, genome.final_md5)
+
+        if md5_matches:
             type = self._type_checker.get_type(genome.final_name)
-            if type == Type.BGZIP:                
-                md5 = hashlib.md5(genome.final_name.open("rb").read()).hexdigest()
-                if md5 == genome.final_md5:
-                    logging.info(f"{genome.code}: Already downloaded, no further conversions needed.")
-                    return
-                else:
-                    logging.info(f"{genome.code}: Existing file is corrupted. Downloading again.")
-        
-        if genome.initial_name.exists():
+            if type == Type.BGZIP:
+                logging.info(f"{genome.code}: file downloaded, no conversion needed.")
+                return
+
+        need_download=True
+        md5_matches = self._check_file_md5(genome.initial_name, genome.initial_md5)
+        if md5_matches:
             type = self._type_checker.get_type(genome.initial_name)
             if type == Type.BGZIP:
-                md5 = hashlib.md5(genome.final_name.open("rb").read()).hexdigest()
-                if md5 == genome.final_md5:
-                    logging.info(f"{genome.code}: Already downloaded, no further conversions needed.")
-                    return
-                else:
-                    logging.info(f"{genome.code}: Downloaded file is corrupted. Downloading again.")
-                logging.info(f"{genome.code}: Already downloaded, no further conversions needed.")
-                return
-        else:
-            self._download(genome)
-        
-        logging.info(f"{genome.code}: Converting to bgzip.")
-        self.to_bgzip(genome)
+                # This should never happen as we have a bgzip file we should be falling in the previous if
+                raise RuntimeError(
+                    f"{genome.code}: {genome.final_name.name} not present but {genome.initial_name.name} in bgzip format."
+                )
+            logging.info(f"{genome.code}: Already downloaded.")
+            need_download = False
+        elif md5_matches == False:
+            logging.info(
+                f"{genome.code}: Downloaded file is corrupted. Downloading again."
+            )
+        elif md5_matches == None:
+            logging.info(
+                f"{genome.code}: File not present. Downloading."
+            )
+            
+        if need_download:
+            self._download(genome)        
+        self._to_bgzip(genome)

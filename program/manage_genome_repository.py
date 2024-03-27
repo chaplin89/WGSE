@@ -1,3 +1,4 @@
+import argparse
 import logging
 from pathlib import Path
 import sys
@@ -8,7 +9,6 @@ from reference.file_type_checker import FileTypeChecker
 from reference.genome_repository import GenomeRepository
 from reference.samtools import Samtools
 from reference.csv_metadata_loader import CsvMetadataLoader
-import argparse
 
 if __name__ == "__main__":
     logging.getLogger().setLevel(logging.INFO)
@@ -92,9 +92,14 @@ if __name__ == "__main__":
         downloader,
         compressor,
         decompressor,
+        samtools
     )
-
+    
     for genome in metadata.genomes:
-        repository.add_to_library(genome)
+        try:
+            repository.add_to_library(genome)
+        except Exception as e:
+            logging.error(e)
+            continue
 
     # genome = library.filter("hs37d5", Source.EBI_ALT)
