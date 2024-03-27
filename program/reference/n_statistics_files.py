@@ -57,6 +57,7 @@ class Buckets:
     def _make_buckets(self) -> typing.OrderedDict[int, int]:
         if self._buckets_number > self._sequence.length:
             # Can't have less than 1 N per bucket.
+            return collections.OrderedDict()
             raise ValueError(
                 f"Number of buckets should be at least {self._sequence.length}"
             )

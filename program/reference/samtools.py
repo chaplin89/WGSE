@@ -95,13 +95,14 @@ class Samtools:
                 raise RuntimeError(
                     f"Unable to decompress, invalid filename {str(path)}"
                 )
-            output = Path(str(path.stem) + "".join(path.suffixes[:-1:]))
+            
+            output = Path(path.name.rstrip(path.suffixes[-1]))
         elif action == BgzipAction.Reindex:
             action_flag = "-r"
             output = Path(str(path) + ".gzi")
 
         arguments = [self._bgzip, action_flag, str(path), "-@", "32"]
-        process = subprocess.run(arguments, check=True, capture_output=True)
+        process = subprocess.run(arguments, capture_output=True)
         return output
 
     def tab_indexer(

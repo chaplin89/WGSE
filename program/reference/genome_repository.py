@@ -2,6 +2,8 @@ import hashlib
 import logging
 from pathlib import Path
 from typing import List
+
+from .fasta_file import FastaFile
 from .samtools import BgzipAction, Samtools
 from .decompressor import Decompressor
 from .compressor import Compressor
@@ -85,9 +87,9 @@ class GenomeRepository:
         if not genome.dict.exists():
             self._samtools.make_dictionary(genome.final_name, genome.dict)
         if not all([genome.bed.exists(), genome.nbin.exists(), genome.nbuc.exists()]):
-            pass
-            #ub = NStatisticsFiles(genome.final_name, genome.dict)
-            #ub.get_stats()
+            fasta_file = FastaFile(genome)
+            ub = NStatisticsFiles(fasta_file)
+            ub.generate_stats()
 
     def _check_file_md5(self, path: Path, md5: str):
         if path.exists():
@@ -135,7 +137,7 @@ class GenomeRepository:
             need_download = False
         elif md5_matches == False:
             logging.info(
-                f"{genome.code}: Downloaded file is corrupted. Downloading again."
+                f"{genome.code}: {genome.initial_name.name} is corrupted. Downloading again."
             )
         elif md5_matches == None:
             logging.info(

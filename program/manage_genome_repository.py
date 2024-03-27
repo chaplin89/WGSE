@@ -67,7 +67,6 @@ if __name__ == "__main__":
     delete_action = action_subparser.add_parser(
         "delete", help="List available reference genomes.", aliases=["rm"]
     )
-    
     download_action.add_argument(
         "id", type=str, help="ID of the reference genome to download."
     )
@@ -75,6 +74,7 @@ if __name__ == "__main__":
         "--on-disk", type=str, help="ID of the reference genome to download."
     )
 
+    logging.getLogger().setLevel(10)
     args = parser.parse_args(["download","hg37"])
     parser.print_help()
     
