@@ -46,17 +46,16 @@ def test_run_in_multiple_buckets():
     assert sut[1] == 50 # 99 -> 151
     
 def test_too_many_buckets():
-    with pytest.raises(ValueError) as e:
-        sequence = Sequence("Foo", 1000)
+    sequence = Sequence("Foo", 1000)
 
-        sequence.open_run(0)
-        sequence.close_run(99)
+    sequence.open_run(0)
+    sequence.close_run(99)
 
-        sequence.open_run(100)
-        sequence.close_run(201)
+    sequence.open_run(100)
+    sequence.close_run(201)
 
-        sut = Buckets(sequence, 1001, 0).buckets
-    assert "at least" in str(e.value)
+    sut = Buckets(sequence, 1001, 0).buckets
+    assert len(sut) == 0
     
 def test_run_end_to_end_divisible():
     sequence = Sequence("Foo", 1000)

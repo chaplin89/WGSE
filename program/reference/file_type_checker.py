@@ -1,5 +1,5 @@
 from pathlib import Path
-from .samtools import Samtools
+from .external import External
 import logging
 import enum
 
@@ -34,8 +34,8 @@ class FileTypeChecker:
         "FASTA sequence": Type.DECOMPRESSED,
     }
 
-    def __init__(self, samtools: Samtools) -> None:
-        self._samtools = samtools
+    def __init__(self, external: External) -> None:
+        self._external = external
 
     def get_type(self, file: Path) -> Type | None:
         """Get a Type starting from a file path.
@@ -49,7 +49,7 @@ class FileTypeChecker:
         # Extensions can be wrong or misleading; Use htsfile and
         # eventually fallback on extension.
 
-        file_type = self._samtools.get_file_type(file)
+        file_type = self._external.get_file_type(file)
         for key, value in FileTypeChecker._HTSFILE_TO_TYPE.items():
             if key in file_type:
                 return value

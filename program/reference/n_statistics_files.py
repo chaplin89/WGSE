@@ -39,7 +39,7 @@ import typing
 import collections
 import statistics
 from .fasta_file import FastaFile, Sequence
-from .samtools import Samtools
+from .external import External
 from .genome import Genome
 
 
@@ -58,9 +58,6 @@ class Buckets:
         if self._buckets_number > self._sequence.length:
             # Can't have less than 1 N per bucket.
             return collections.OrderedDict()
-            raise ValueError(
-                f"Number of buckets should be at least {self._sequence.length}"
-            )
 
         buckets = collections.OrderedDict()
         bucket_size = int(math.floor(self._sequence.length / self._buckets_number))
@@ -159,8 +156,8 @@ class NStatisticsFiles:
 
             buckets = Buckets(
                 sequence, self._buckets_number, self._long_run_threshold
-            ).buckets
-            for index, bucket_count in buckets.items():
+            )
+            for index, bucket_count in buckets.buckets.items():
                 val = round(math.log(bucket_count) if bucket_count > 1 else 0)
                 start = index * bucket_lenght
 
@@ -174,23 +171,19 @@ class NStatisticsFiles:
         with path.open("wt", encoding="utf8") as f:
             f.writelines(lines)
 
-    def _generate_files(self, unknown_bases: typing.Dict[str, typing.List[Sequence]]):
-        self._generate_file(self._fasta_file.genome.nbuc, self.get_nbuc(unknown_bases))
-        self._generate_file(self._fasta_file.genome.bed, self.get_bed(unknown_bases))
-        self._generate_file(self._fasta_file.genome.nbin, self.get_nbin(unknown_bases))
+    def _generate_files(self, sequences: typing.Dict[str, typing.List[Sequence]]):
+        self._generate_file(self._fasta_file.genome.nbuc, self.get_nbuc(sequences))
+        self._generate_file(self._fasta_file.genome.bed, self.get_bed(sequences))
+        self._generate_file(self._fasta_file.genome.nbin, self.get_nbin(sequences))
 
     def generate_stats(self):
-        sequences = self._fasta_file.split_into_sequences()
+        logging.info(f"{self._fasta_file.genome.final_name.name}: Counting Ns.")
+        sequences = self._fasta_file.count_letters("N")
+        logging.info(f"{self._fasta_file.genome.final_name.name}: Finished counting Ns.")
         self._generate_files(sequences)
 
 
 if __name__ == "__main__":
-    if "win" in sys.platform:
-        default_samtools = pathlib.Path("cygwin64", "usr", "local", "bin")
-    else: 
-        default_samtools = None
-        
-    
     parser = argparse.ArgumentParser("unknown_bases_stats.py")
     parser.add_argument(
         "--reference",
@@ -217,24 +210,26 @@ if __name__ == "__main__":
         default=1000,
     )
     parser.add_argument(
-        "--samtools",
-        help="Indicate the root directory for samtools (only needed to generate the .dict file if not already available).",
+        "--external",
+        help="Indicate the root directory for 3rd parties executables (only needed to generate the .dict file if not already available).",
         type=pathlib.Path,
-        default=default_samtools,
+        default=None,
     )
-    parser.add_argument("--verbose", help="Set logging level [1-5]", type=int, default=1)
+    parser.add_argument("--verbose", help="Set logging level", choices=["INFO", "DEBUG", "WARNING", "ERROR"], type=str, default="INFO")
     args = parser.parse_args()
     
-    logging.getLogger().setLevel(args.verbose*10)
+    logging.getLogger().setLevel(logging.__dict__[args.verbose])
 
     start = time.time()
     genome = Genome(args.reference)
-    if not genome.dict.exists():
-        samtools = Samtools(args.samtools)
-        samtools.make_dictionary(args.reference, genome.dict)
     
+    if not genome.dict.exists():
+        external = External(args.external)
+        external.make_dictionary(args.reference, genome.dict)
+    
+    fasta_file = FastaFile(genome)
     unknown_bases_stats = NStatisticsFiles(
-        FastaFile(genome), args.long_run_threshold, args.buckets_number,
+        fasta_file, args.long_run_threshold, args.buckets_number,
     )
     unknown_bases_stats.generate_stats()
     end = time.time()

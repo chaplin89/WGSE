@@ -60,6 +60,12 @@ class Genome:
         return pathlib.Path(str(self.final_name) + ".gzi")
 
     @property
+    def fai(self):
+        if self.final_name is None:
+            return None
+        return pathlib.Path(str(self.final_name) + ".fai")
+    
+    @property
     def nbin(self):
         if self.final_name is None:
             return None
@@ -78,13 +84,13 @@ class Genome:
         return None
 
     @property
-    def fai(self):
-        if self.final_name is None:
-            return None
-        return pathlib.Path(str(self.final_name) + ".fai")
-
-    @property
     def dict(self):
         if self.final_name is None:
             return None
         return pathlib.Path(self.no_exts + ".dict")
+
+    def __repr__(self) -> str:
+        return f"{self.code} from {self.source.name}"
+    
+    def __str__(self) -> str:
+        return self.__repr__()

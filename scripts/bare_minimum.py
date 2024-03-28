@@ -39,6 +39,7 @@ if __name__ == "__main__":
         cygwin_root.joinpath("tabix.exe"),
         cygwin_root.joinpath("minimap2.exe"),
         cygwin_root.joinpath("fastp.exe"),
+        cygwin_root.joinpath("gzip.exe"),
     ]
 
     destination_root = Path("bare_minimum")

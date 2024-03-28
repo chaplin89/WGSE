@@ -8,7 +8,7 @@ import typing
 from .genome import Genome
 
 class Run:
-    """Represent a single run of Ns"""
+    """Represent a single run of a specific letter"""
 
     def __init__(self) -> None:
         self.start = None
@@ -21,7 +21,7 @@ class Run:
         self.length = length
 
 class Sequence:
-    """Represent a collection of runs of Ns."""
+    """Represent a collection of runs of a specific letter."""
 
     def __init__(self, name: str, length: int) -> None:
         if length <= 0:
@@ -56,7 +56,7 @@ class Sequence:
 
     def close_run(self, position: int) -> None:
         if self._current_run is None:
-            raise RuntimeError("Trying to close an already closed run of Ns.")
+            raise RuntimeError("Trying to close an already closed run.")
         if position <= self._current_run.start:
             raise RuntimeError(
                 f"Expected a position greater than start for closing a run: {position}<={self._current_run.start}"
@@ -108,9 +108,9 @@ class FastaFile:
         sequence_length = self._dict.entries[sequence_name].length
         return Sequence(sequence_name, sequence_length)
 
-    def _process_file(self, fp: typing.TextIO) -> typing.List[Sequence]:
+    def _process_file(self, fp: typing.TextIO, letter: str) -> typing.List[Sequence]:
         sequences = collections.OrderedDict()
-        pattern = re.compile(r"N+")
+        pattern = re.compile(rf"{letter}+")
 
         position = None
         current_sequence = None
@@ -175,9 +175,7 @@ class FastaFile:
         current_sequence.end(position)
         return list(sequences.values())
 
-    def split_into_sequences(self) -> typing.List[Sequence]:
-        logging.info(f"{self.genome.final_name.name}: Counting Ns.")
+    def count_letters(self, letter : str = "N") -> typing.List[Sequence]:
         with gzip.open(self.genome.final_name, "rt") as f:
-            sequences = self._process_file(f)
-        logging.info(f"{self.genome.final_name.name}: Counting Ns done.")
+            sequences = self._process_file(f, letter)
         return sequences

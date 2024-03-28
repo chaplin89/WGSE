@@ -4,17 +4,31 @@ from pathlib import Path
 from typing import List
 
 from .fasta_file import FastaFile
-from .samtools import BgzipAction, Samtools
+from .external import GzipAction, External
 from .decompressor import Decompressor
 from .compressor import Compressor
 from .downloader import Downloader
 from .file_type_checker import FileTypeChecker, Type
 from .genome import Genome
 from .n_statistics_files import NStatisticsFiles
+from .csv_metadata_loader import CsvMetadataLoader
 
 
 class GenomeRepository:
     """Manage a repository of reference genome files"""
+
+    def build(csv: Path, root: Path, external: Path = None):
+        external = External(external)
+        type_checker = FileTypeChecker(external)
+        return GenomeRepository(
+            CsvMetadataLoader(csv).genomes,
+            root,
+            type_checker,
+            Downloader(),
+            Compressor(external),
+            Decompressor(type_checker),
+            external
+        )
 
     def __init__(
         self,
@@ -24,7 +38,7 @@ class GenomeRepository:
         downloader_: Downloader,
         compressor_: Compressor,
         decompressor_: Decompressor,
-        samtools_ : Samtools,
+        external_: External,
     ) -> None:
         self._reference_genomes = reference_genomes
         self._library_path = library_path
@@ -32,7 +46,7 @@ class GenomeRepository:
         self._downloader = downloader_
         self._decompressor = decompressor_
         self._compressor = compressor_
-        self._samtools = samtools_
+        self._external = external_
         self._rebase_reference_genomes()
 
     def _rebase_reference_genomes(self):
@@ -79,13 +93,16 @@ class GenomeRepository:
         if compressed != genome.final_name:
             compressed.rename(genome.final_name)
 
+    def filter(self, id):
+        return [x for x in self._reference_genomes if x.code == id]
+
     def _post_download(self, genome: Genome):
         if not genome.gzi.exists():
-            index = self._samtools.bgzip(genome.final_name, BgzipAction.Reindex)
+            index = self._external.bgzip(genome.final_name, GzipAction.Reindex)
             if index != genome.gzi:
                 index.rename(genome.gzi)
         if not genome.dict.exists():
-            self._samtools.make_dictionary(genome.final_name, genome.dict)
+            self._external.make_dictionary(genome.final_name, genome.dict)
         if not all([genome.bed.exists(), genome.nbin.exists(), genome.nbuc.exists()]):
             fasta_file = FastaFile(genome)
             ub = NStatisticsFiles(fasta_file)
@@ -124,7 +141,7 @@ class GenomeRepository:
                 logging.info(f"{genome.code}: file downloaded, no conversion needed.")
                 return
 
-        need_download=True
+        need_download = True
         md5_matches = self._check_file_md5(genome.initial_name, genome.initial_md5)
         if md5_matches:
             type = self._type_checker.get_type(genome.initial_name)
@@ -140,10 +157,8 @@ class GenomeRepository:
                 f"{genome.code}: {genome.initial_name.name} is corrupted. Downloading again."
             )
         elif md5_matches == None:
-            logging.info(
-                f"{genome.code}: File not present. Downloading."
-            )
-            
+            logging.info(f"{genome.code}: File not present. Downloading.")
+
         if need_download:
-            self._download(genome)        
+            self._download(genome)
         self._to_bgzip(genome)

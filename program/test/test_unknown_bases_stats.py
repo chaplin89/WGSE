@@ -51,7 +51,7 @@ def test_run_continuing_across_lines_is_processed_correctly():
     sut = FastaFile(MockGenome(fa_lines, dict_line))
 
     # Act
-    result = sut.split_into_sequences()
+    result = sut.count_letters()
 
     # Assert
     assert len([x for x in result if x.name == "1"]) == 1
@@ -71,7 +71,7 @@ def test_run_starting_at_0_is_processed_correctly():
     sut = FastaFile(MockGenome(fa_lines, dict_line))
 
     # Act
-    result = sut.split_into_sequences()
+    result = sut.count_letters()
 
     # Assert
     assert len([x for x in result if x.name == "1"]) == 1
@@ -94,7 +94,7 @@ def test_run_starting_in_the_middle_is_processed_correctly():
     sut = FastaFile(MockGenome(fa_lines, dict_line))
 
     # Act
-    result = sut.split_into_sequences()
+    result = sut.count_letters()
 
     # Assert
     assert len([x for x in result if x.name == "1"]) == 1
@@ -114,7 +114,7 @@ def test_run_ending_with_line_is_processed_correctly():
     sut = FastaFile(MockGenome(fa_lines, dict_line))
 
     # Act
-    result = sut.split_into_sequences()
+    result = sut.count_letters()
 
     # Assert
     assert len([x for x in result if x.name == "1"]) == 1
@@ -138,7 +138,7 @@ def test_run_not_continuing_in_next_line_is_processed_correctly():
     sut = FastaFile(MockGenome(fa_lines, dict_line))
 
     # Act
-    result = sut.split_into_sequences()
+    result = sut.count_letters()
 
     # Assert
     assert len([x for x in result if x.name == "1"]) == 1
@@ -164,7 +164,7 @@ def test_run_not_continuing_in_next_line_is_processed_correctly():
     sut = FastaFile(MockGenome(fa_lines, dict_line))
 
     # Act
-    result = sut.split_into_sequences()
+    result = sut.count_letters()
 
     # Assert
     assert len([x for x in result if x.name == "1"]) == 1

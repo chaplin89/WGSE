@@ -69,7 +69,7 @@ def test_sequence_not_in_dictionary():
    
     with pytest.raises(ValueError) as e:
         genome = MockGenome(MockPath(fa_lines), MockPath(dict_lines))
-        FastaFile(genome).split_into_sequences()
+        FastaFile(genome).count_letters()
     assert "not present in dictionary" in str(e.value)
     
 def test_fastq():
@@ -87,7 +87,7 @@ def test_fastq():
    
     with pytest.raises(RuntimeError) as e:
         genome = MockGenome(MockPath(fa_lines), MockPath(dict_lines))
-        FastaFile(genome).split_into_sequences()
+        FastaFile(genome).count_letters()
     assert "Expected a FASTA" in str(e.value)
     
 def test_duplicate_sequence():
@@ -105,7 +105,7 @@ def test_duplicate_sequence():
    
     with pytest.raises(RuntimeError) as e:
         genome = MockGenome(MockPath(fa_lines), MockPath(dict_lines))
-        FastaFile(genome).split_into_sequences()
+        FastaFile(genome).count_letters()
     assert "duplicated sequence" in str(e.value)
     
     
@@ -122,5 +122,5 @@ def test_only_comments():
    
     with pytest.raises(RuntimeError) as e:
         genome = MockGenome(MockPath(fa_lines), MockPath(dict_lines))
-        FastaFile(genome).split_into_sequences()
+        FastaFile(genome).count_letters()
     assert "no sequences" in str(e.value)
