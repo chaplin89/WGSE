@@ -48,6 +48,12 @@ class Downloader:
                 if callback is not False:
                     curl.setopt(pycurl.NOPROGRESS, False)
 
+                # TODO: find an easy way (if it exists) to load ca-bundle
+                # on every platform. Or remove this TODO as we don't really
+                # care about people MITM-ing our reference genome download.
+                curl.setopt(pycurl.SSL_VERIFYPEER, 0)
+                curl.setopt(pycurl.SSL_VERIFYHOST, 0)
+
                 if callback is not None and callback is not False:
                     curl.setopt(pycurl.DEBUGFUNCTION, callback)
                 curl.perform()

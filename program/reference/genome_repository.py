@@ -1,3 +1,4 @@
+import enum
 import hashlib
 import logging
 from pathlib import Path
@@ -13,6 +14,11 @@ from .genome import Genome
 from .n_statistics_files import NStatisticsFiles
 from .csv_metadata_loader import CsvMetadataLoader
 
+class FileStatus(enum.Enum):
+    Available = 0,
+    NotAvailable = 1,
+    Corrupt = 2,
+    Valid = 3,
 
 class GenomeRepository:
     """Manage a repository of reference genome files"""
@@ -77,8 +83,13 @@ class GenomeRepository:
         if genome.initial_name.exists() and genome.final_name != genome.initial_name:
             genome.initial_name.unlink()
 
-    def filter(self, id):
-        return [x for x in self._reference_genomes if x.code == id]
+    def filter(self, id=None, source=None):
+        filtered = self._reference_genomes
+        if id is not None:
+            filtered = [x for x in filtered if x.code.startswith(id)]
+        if source is not None:
+            filtered = [x for x in filtered if x.source.name == source]
+        return filtered
 
     def _post_download(self, genome: Genome):
         logging.info(f"{genome.code}-{genome.source.name}: Starting post-download tasks.")
@@ -119,13 +130,46 @@ class GenomeRepository:
         self._get_bgzip(genome)
         self._post_download(genome)
     
-    def delete(self, genome:Genome):
+    def delete(self, genome:Genome) -> List[Path]:
         deleted = []
         for file in genome.all:
             if file.exists():
                 file.unlink()
-                deleted.append[file]
+                deleted.append(file)
         return deleted
+    
+    def _check_file(self, file: Path, md5: str):
+        if file.exists():
+            self._check_file_md5(file, md5)
+        if file.exists():
+            md5_matches = self._check_file_md5(file, md5)
+            if md5_matches:
+                return FileStatus.Valid
+            else:
+                return FileStatus.Corrupt
+        return FileStatus.NotAvailable
+    
+    def check(self, genome:Genome):
+        status = {}
+        final = self._check_file(genome.final_name, genome.final_md5)
+        initial = self._check_file(genome.initial_name, genome.initial_md5)
+        if genome.initial_name == genome.final_name:
+            if final == FileStatus.Valid or initial == FileStatus.Valid:
+                status[genome.initial_name] = FileStatus.Valid
+            else:
+                status[genome.initial_name] = final
+        else:
+            status[genome.initial_name] = initial
+            status[genome.final_name] = final
+        
+        for file in genome.all:
+            if file not in status:
+                if file.exists():
+                    status[file] = FileStatus.Available
+                else:
+                    status[file] = FileStatus.NotAvailable
+        return status
+        
 
     def _get_bgzip(self, genome: Genome):
         """Add a genome to the library
