@@ -68,7 +68,7 @@ class GenomeRepository:
 
 
         if type != Type.DECOMPRESSED:
-            logging.info(f"{genome.code}-{genome.source.name}: Decompressing.")
+            logging.info(f"{genome.code}-{genome.source.name}: Decompressing {type.name}.")
             self._decompressor.decompress(genome.initial_name, genome.decompressed)
         else:
             logging.info(
@@ -95,16 +95,16 @@ class GenomeRepository:
         logging.info(f"{genome.code}-{genome.source.name}: Starting post-download tasks.")
         if not genome.gzi.exists():
             logging.info(f"{genome.code}-{genome.source.name}: Generating bgzip index.")
-            index = self._external.bgzip(genome.final_name, GzipAction.Reindex)
-            if index != genome.gzi:
-                index.rename(genome.gzi)
+            self._external.bgzip(genome.final_name, genome.gzi, GzipAction.Reindex)
         else:
             logging.info(f"{genome.code}-{genome.source.name}: bgzip index exists.")
+            
         if not genome.dict.exists():
-            logging.info(f"{genome.code}-{genome.source.name}: Generating .dict file.")
+            logging.info(f"{genome.code}-{genome.source.name}: Generating dictionary file.")
             self._external.make_dictionary(genome.final_name, genome.dict)
         else:
-            logging.info(f"{genome.code}-{genome.source.name}: .dict file exists.")
+            logging.info(f"{genome.code}-{genome.source.name}: Dictionary file exists.")
+            
         if not all([genome.bed.exists(), genome.nbin.exists(), genome.nbuc.exists()]):
             logging.info(f"{genome.code}-{genome.source.name}: Generating Ns stats files.")
             fasta_file = FastaFile(genome)
@@ -126,8 +126,8 @@ class GenomeRepository:
             return True
         return False
 
-    def add(self, genome: Genome):
-        self._get_bgzip(genome)
+    def add(self, genome: Genome, callback=None):
+        self._get_bgzip(genome, callback)
         self._post_download(genome)
     
     def delete(self, genome:Genome) -> List[Path]:
@@ -169,9 +169,8 @@ class GenomeRepository:
                 else:
                     status[file] = FileStatus.NotAvailable
         return status
-        
 
-    def _get_bgzip(self, genome: Genome):
+    def _get_bgzip(self, genome: Genome, callback):
         """Add a genome to the library
 
         Args:
@@ -203,5 +202,5 @@ class GenomeRepository:
             logging.info(f"{genome.code}-{genome.source.name}: File not found. Downloading.")
 
         if need_download:
-            self._downloader.download(genome, False)
+            self._downloader.download(genome, callback)
         self._to_bgzip(genome)

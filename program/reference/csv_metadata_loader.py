@@ -16,7 +16,8 @@ _STRING_TO_SOURCE = {
     "YSEQ": Source.YSEQ,
     "GOOG": Source.GOOGLE,
     "WGSE": Source.WGSE,
-    "JHU": Source.YHU
+    "JHU": Source.YHU,
+    "LOCAL": Source.LOCAL
 }
 
 

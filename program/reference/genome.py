@@ -14,6 +14,7 @@ class Source(enum.Enum):
     GOOGLE = 7
     WGSE = 8
     YHU = 9
+    LOCAL = 10
 
 
 class Genome:

@@ -1,3 +1,4 @@
+from collections import OrderedDict
 import typing
 import pathlib
 import logging
@@ -20,7 +21,7 @@ class FastaDictionary:
     def __init__(self, path: pathlib.Path) -> None:
         self._path = path
         self.header = None
-        self.entries: typing.Dict[str, FastaDictionaryEntry] = {}
+        self.entries: typing.OrderedDict[str, FastaDictionaryEntry] = OrderedDict()
         self._handlers = {"@HD": self._header_process, "@SQ": self._sequence_process}
         self._load_dictionary()
 

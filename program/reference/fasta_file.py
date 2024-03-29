@@ -4,6 +4,7 @@ import gzip
 import logging
 import re
 import typing
+import sys
 
 try:
     import tqdm
@@ -92,19 +93,30 @@ class FastaFile:
     """Represent a collection of sequences"""
 
     def __init__(self, genome: Genome):
-        self._progressbar = None
+        self._bases_progressbar = None
         self.genome = genome
+        self._sequences_progressbar = None
+        self._bases_progressbar = None
         if not self.genome.dict.exists():
             raise RuntimeError(f"Unable to find dictionary in {self.genome.dict.name}.")
         self._dict = FastaDictionary(self.genome.dict)
+        self._support_multiline_progress = "win" not in sys.platform
 
     @property
     def model_name(self):
         return self.genome.final_name.name
 
-    def _progress(self, sequence, position, total):
-        if self._progressbar is not None:
-            self._progressbar.update(position)
+    def _progress(self, name, current_sequence, total_sequences, current_position, total_position):
+        if tqdm is not None:
+            if self._sequences_progressbar is None and self._support_multiline_progress:
+                self._sequences_progressbar = tqdm.tqdm(total=total_sequences, desc=f"Sequences")
+            if self._bases_progressbar is None:
+                self._bases_progressbar = tqdm.tqdm(total=total_position, desc=f"{name}")
+            
+            if current_sequence != 0 and self._support_multiline_progress:
+                self._sequences_progressbar.update(current_sequence)
+            if current_position != 0:
+                self._bases_progressbar.update(current_position)
 
     def _sequence_from_line(self, line: str) -> Sequence:
         # Processing the opening of a new sequence in a FASTA file.
@@ -114,21 +126,13 @@ class FastaFile:
         if sequence_name not in self._dict.entries:
             raise ValueError(f"Sequence {sequence_name} is not present in dictionary.")
         sequence_length = self._dict.entries[sequence_name].length
-
-        if self._progressbar is not None:
-            self._progressbar.close()
-            self._progressbar = None
-
-        if tqdm is not None:
-            self._progressbar = tqdm.tqdm(total=sequence_length, desc=sequence_name)
-
         return Sequence(sequence_name, sequence_length)
 
     def _process_file(
         self,
         fp: typing.TextIO,
         letter: str,
-        progress: typing.Callable[[int, int, int], None],
+        progress: typing.Callable[[int, int, int, int], None],
     ) -> typing.List[Sequence]:
         sequences = collections.OrderedDict()
         pattern = re.compile(rf"{letter}+")
@@ -150,6 +154,9 @@ class FastaFile:
                 )
 
             if line[0] == ">":
+                if self._bases_progressbar is not None:
+                     self._bases_progressbar.close()
+                     self._bases_progressbar = None
                 # New sequence found. Close old sequence if open.
                 if current_sequence is not None:
                     current_sequence.end(position)
@@ -163,6 +170,8 @@ class FastaFile:
                     f"{self.genome.final_name.name}: Processing sequence {current_sequence.name}"
                 )
                 sequences[current_sequence.name] = current_sequence
+                if progress is not None:
+                    progress(current_sequence.name, 1, len(self._dict.entries), 0, current_sequence.length)
                 position = 0
                 continue
 
@@ -192,7 +201,7 @@ class FastaFile:
                     current_sequence.close_run(match.end() + position)
             position += len(line)
             if progress is not None:
-                progress(current_sequence.name, len(line), current_sequence.length)
+                progress(current_sequence.name, 0,len(self._dict.entries), len(line), current_sequence.length)
 
         # File is terminated: close the current sequence and the open run (if any).
         if current_sequence is None:
@@ -203,10 +212,10 @@ class FastaFile:
     def count_letters(
         self,
         letter: str = "N",
-        progress: typing.Callable[[int, int, int], None] = False,
+        progress: typing.Callable[[str, int, int, int, int], None] = False,
     ) -> typing.List[Sequence]:
         if progress is False:
-            progress = lambda seq, pos,total: self._progress(seq, pos, total)
+            progress = lambda seq_name, seq_delta, seq_tot, pos_delta, pos_tot: self._progress(seq_name, seq_delta, seq_tot, pos_delta, pos_tot)
         
         with gzip.open(self.genome.final_name, "rt") as f:
             sequences = self._process_file(f, letter, progress)

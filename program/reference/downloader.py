@@ -29,15 +29,6 @@ class Downloader:
         return False
 
     def download(self, genome: Genome, callback: any = False) -> None:
-        """Download a genome, overwrite if it exist.
-
-        Args:
-            genome (Genome): Genome to download
-            callback (any, optional): Function to call for progress.
-                None disable progress reporting, False enable pycurl
-                default progress reporting. Defaults to False.
-        """
-
         try:
             genome.initial_name.unlink(True)
             with genome.initial_name.open("wb") as f:
@@ -45,7 +36,7 @@ class Downloader:
                 curl.setopt(pycurl.URL, genome.url)
                 curl.setopt(pycurl.WRITEDATA, f)
                 curl.setopt(pycurl.FOLLOWLOCATION, True)
-                if callback is not False:
+                if callback is not False or callback is not None:
                     curl.setopt(pycurl.NOPROGRESS, False)
 
                 # TODO: find an easy way (if it exists) to load ca-bundle
@@ -55,9 +46,11 @@ class Downloader:
                 curl.setopt(pycurl.SSL_VERIFYHOST, 0)
 
                 if callback is not None and callback is not False:
-                    curl.setopt(pycurl.DEBUGFUNCTION, callback)
+                    curl.setopt(pycurl.PROGRESSFUNCTION, lambda tot,n,tot_up,n_up: callback(tot, n))
                 curl.perform()
                 curl.close()
+                # Signal the download is done
+                callback(None, None)
         except:
             if genome.initial_name.exists():
                 genome.initial_name.unlink()

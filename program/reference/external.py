@@ -130,6 +130,12 @@ class External:
         process = subprocess.run(arguments, capture_output=True)
         
         if process.returncode != 0:
+            # RAFZ format is libz compatible but will make gzip returning
+            # with a != 0 code, complaining about "trailing garbage data".
+            # This is not a real error, as the file is decompressed anyway.
+            # The issue is potentially fixable by truncating the file, but
+            # there's no practical advantage in doing so. If we fall in this 
+            # situation, ignore the error.
             if "trailing garbage" not in process.stderr.decode():
                 raise RuntimeError(f"gzip failed: {process.stderr}")
         

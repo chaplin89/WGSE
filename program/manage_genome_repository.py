@@ -1,9 +1,30 @@
 import argparse
 import logging
 from pathlib import Path
+
+import tqdm
 from reference.genome_repository import GenomeRepository
 from reference.genome import Source
 import pprint
+
+progress = None
+
+def _progress(total, downloaded):
+    global progress
+    if total is None:
+        if progress is not None:
+            progress.close()
+            progress = False
+        
+    if progress is False:
+        return
+    
+    if total == 0:
+        return
+    
+    if progress is None:
+        progress = tqdm.tqdm(desc="Downloading", total=int(total), unit_scale=1/(1024*1024), unit="MB", bar_format='{l_bar}{bar}{n:.0f}/{total:.0f}MB[{elapsed}<{remaining} {rate_fmt}{postfix}]')
+    progress.update(downloaded - progress.n)
 
 
 def download(args):
@@ -26,14 +47,16 @@ def download(args):
             "because they were duplicate of the same genome coming from different sources. "
             "To override this behavior specify --all."
         )
-    
+
     logging.info("Genomes to download:")
     for index, genome in enumerate(unique_genomes.values()):
-        logging.info(f"  #{index} {str(genome)}")
+        logging.info(f"  #{index+1} {str(genome)}")
 
     for genome in unique_genomes.values():
+        progress = None
         logging.info(f"Adding to library: {str(genome)}")
-        repository.add(genome)
+        repository.add(genome, _progress)
+
 
 def list_(args):
     repository: GenomeRepository = GenomeRepository.build(
@@ -51,8 +74,9 @@ def list_(args):
     else:
         logging.info(f"Found {len(genomes)} genome(s) matching criteria(s):")
         for index, genome in enumerate(genomes):
-            logging.info(f"  #{index+1} {genome.code} from {genome.source.name}: {genome.description}")
-    
+            logging.info(
+                f"  #{index+1} {genome.code} from {genome.source.name}: {genome.description}"
+            )
 
 
 def add_(args):
@@ -66,7 +90,7 @@ def delete_(args):
         args.csv, args.root, args.external
     )
     genomes = repository.filter(args.id, args.source)
-    
+
     logging.info("Genomes to delete:")
     for index, genome in enumerate(genomes):
         logging.info(f"  #{index+1} {str(genome)}")
@@ -74,7 +98,9 @@ def delete_(args):
         y = "n"
         while y.lower() != "y":
             try:
-                y = input(f"You're about to delete {len(genomes)} genomes from repository. Press Y to continue, CTRL-C to abort: ")
+                y = input(
+                    f"You're about to delete {len(genomes)} genomes from repository. Press Y to continue, CTRL-C to abort: "
+                )
             except (EOFError, KeyboardInterrupt):
                 print("\nAborting. No changes were made.")
                 return
@@ -86,6 +112,7 @@ def delete_(args):
         for file in deleted:
             logging.info(f"Deleted {file.name}.")
 
+
 def check(args):
     repository: GenomeRepository = GenomeRepository.build(
         args.csv, args.root, args.external
@@ -96,6 +123,7 @@ def check(args):
         status = repository.check(genome)
         for index, value in status.items():
             logging.info(f"  {index.name}: {value.name}")
+
 
 if __name__ == "__main__":
     logging.getLogger().setLevel(logging.INFO)
@@ -145,7 +173,7 @@ if __name__ == "__main__":
     download_action.set_defaults(func=download)
     download_action.add_argument(
         "--id", type=str, help="ID of the reference genome to download."
-    )  
+    )
     download_action.add_argument(
         "--source", type=str, help="Source of the reference genome to download."
     )
@@ -161,9 +189,7 @@ if __name__ == "__main__":
     list_action.add_argument(
         "--on-disk", type=str, help="List only genomes available on disk."
     )
-    list_action.add_argument(
-        "--id", type=str, help="Filter by genomes matching an ID."
-    )
+    list_action.add_argument("--id", type=str, help="Filter by genomes matching an ID.")
     list_action.add_argument(
         "--source", type=str, help="Filter by genomes matching a source."
     )
@@ -176,13 +202,11 @@ if __name__ == "__main__":
         "add", help="Add a reference genome to the repository."
     )
     add_action.set_defaults(func=add_)
-    
+
     delete_action = action_subparser.add_parser(
         "delete", help="Delete a reference genome from disk.", aliases=["rm"]
-    )   
-    delete_action.add_argument(
-        "--yes", action="store_true", help="Skip confirmation."
     )
+    delete_action.add_argument("--yes", action="store_true", help="Skip confirmation.")
     delete_action.add_argument(
         "--id", type=str, help="ID of the reference genome to delete."
     )
@@ -190,7 +214,7 @@ if __name__ == "__main__":
         "--source", type=str, help="Source of the reference genome to delete."
     )
     delete_action.set_defaults(func=delete_)
-    
+
     check_action = action_subparser.add_parser(
         "check", help="Check the status of a reference genome on disk."
     )
@@ -199,16 +223,16 @@ if __name__ == "__main__":
     )
     check_action.add_argument(
         "--source", type=str, help="Source of the reference genome to check."
-    )    
+    )
     check_action.set_defaults(func=check)
+    #args = parser.parse_args(["delete", "--id", "hs37d5", "--source", "LOCAL", "--yes"])
+    #args = parser.parse_args(["download", "--id", "hs37d5-win", "--source", "LOCAL"])
+    # args = parser.parse_args(["delete", "--id", "hs37d5", "--source", "NIH_ALT"])
+    # args = parser.parse_args(["check", "--id", "hs37d5"])
 
-    #args = parser.parse_args(["download", "--id", "hs37d5"])
-    #args = parser.parse_args(["delete", "--id", "hs37d5"])
-    #args = parser.parse_args(["check", "--id", "hs37d5"])
-    
     args = parser.parse_args()
     logging.getLogger().setLevel(logging.__dict__[args.verbose])
-    
+
     if "func" in args.__dict__:
         args.func(args)
     else:

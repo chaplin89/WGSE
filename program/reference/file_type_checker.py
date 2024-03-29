@@ -8,6 +8,7 @@ class Type(enum.Enum):
     ZIP = 0
     BZIP = 1
     SEVENZIP = 2
+    # GZIP is not used ATM as it's not reliable.
     GZIP = 3
     BGZIP = 4
     RAZF_GZIP = 5
@@ -21,7 +22,7 @@ class FileTypeChecker:
         ".zip": Type.ZIP,
         ".bz": Type.BZIP,
         ".bz2": Type.BZIP,
-        ".gz": Type.GZIP,
+        ".gz": Type.RAZF_GZIP,
         ".fasta": Type.DECOMPRESSED,
         ".fna": Type.DECOMPRESSED,
         ".fa": Type.DECOMPRESSED,
@@ -29,7 +30,7 @@ class FileTypeChecker:
 
     _HTSFILE_TO_TYPE = {
         "BGZF-compressed": Type.BGZIP,
-        "gzip-compressed": Type.GZIP,
+        "gzip-compressed": Type.RAZF_GZIP, 
         "RAZF-compressed": Type.RAZF_GZIP,
         "FASTA sequence": Type.DECOMPRESSED,
     }
