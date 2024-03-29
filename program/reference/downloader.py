@@ -2,13 +2,18 @@ import pycurl
 from .genome import Genome
 import hashlib
 
+try:
+    import tqdm
+except:
+    tqdm = None
+
 class Downloader:
     def __init__(self) -> None:
-        pass
+        self._progressbar = None
 
     def callback(download_total, downloaded, upload_total, uploaded):
         pass
-
+    
     def need_download(self, genome: Genome) -> bool:
         """Return True if a Genome need to be downloaded.
 

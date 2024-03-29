@@ -21,37 +21,48 @@ def download(args):
     if len(genomes) != len(unique_genomes):
         delta = len(genomes) - len(unique_genomes)
         logging.info(
-            f"Found {len(genomes)} genomes but filtered out {delta} because they were "
-            "duplicate of the same genome coming from a different source. To override "
-            "this behavior specify --all."
+            f"Found {len(genomes)} genomes matching the criteria(s) but filtered out {delta} "
+            "because they were duplicate of the same genome coming from different sources. "
+            "To override this behavior specify --all."
         )
+    
     logging.info("Genomes to download:")
-    logging.info(pprint.pformat(list(unique_genomes.values()), indent=10))
+    for index, genome in enumerate(unique_genomes.values()):
+        logging.info(f"#{index} {str(genome)}")
 
-    for genome in genomes:
+    for genome in unique_genomes.values():
         logging.info(f"Adding to library: {str(genome)}")
-        repository.add_to_library(genome)
-
+        repository.add(genome)
 
 def list_(args):
     repository: GenomeRepository = GenomeRepository.build(
         args.csv, args.root, args.external
     )
-    repository.add_to_library()
+    
 
 
 def add_(args):
     repository: GenomeRepository = GenomeRepository.build(
         args.csv, args.root, args.external
     )
-    repository.add_to_library()
 
 
 def delete_(args):
     repository: GenomeRepository = GenomeRepository.build(
         args.csv, args.root, args.external
     )
-    repository.add_to_library()
+    genomes = repository.filter(args.id)
+    if not args.yes:
+        y = "n"
+        while y.lower() != "y":
+            try:
+                y = input(f"You're about to delete {len(genomes)} from repository. Press Y to continue.")
+            except EOFError:
+                logging.info("Aborting.")
+                return
+    for genome in genomes:
+        repository.delete(genome)
+
 
 
 if __name__ == "__main__":
@@ -123,9 +134,17 @@ if __name__ == "__main__":
     add_action.set_defaults(func=add_)
     delete_action = action_subparser.add_parser(
         "delete", help="Delete a reference genome from disk.", aliases=["rm"]
+    )   
+    delete_action.add_argument(
+        "--yes", action="store_true", help="Skip confirmation."
     )
     delete_action.set_defaults(func=delete_)
 
-    args = parser.parse_args(["download", "--id", "hs37d5"])
+    #args = parser.parse_args(["download", "--id", "hs37d5"])
+    args = parser.parse_args()
     logging.getLogger().setLevel(logging.__dict__[args.verbose])
-    args.func(args)
+    
+    if "func" in args.__dict__:
+        args.func(args)
+    else:
+        parser.print_help()

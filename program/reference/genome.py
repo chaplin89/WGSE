@@ -1,5 +1,6 @@
 import enum
 import pathlib
+import typing
 
 
 class Source(enum.Enum):
@@ -34,7 +35,7 @@ class Genome:
         self.final_size: int = None
 
     @property
-    def no_exts(self):
+    def no_exts(self) -> str:
         if self.final_name is None:
             return None
         name = str(self.final_name)
@@ -42,17 +43,25 @@ class Genome:
         return name.rstrip(extensions)
     
     @property
-    def all(self):
+    def all(self) -> typing.List[pathlib.Path]:
         return [
+            self.initial_name,
             self.final_name,
+            self.decompressed,
             self.gzi,
             self.nbin,
             self.nbuc,
             self.bed,
             self.fai,
-            self.dict,
+            self.dict
         ]
 
+    @property
+    def decompressed(self) -> pathlib.Path:
+        if self.final_name is None:
+            return None
+        return pathlib.Path(self.no_exts + ".fa")
+    
     @property
     def gzi(self):
         if self.final_name is None:
@@ -60,31 +69,31 @@ class Genome:
         return pathlib.Path(str(self.final_name) + ".gzi")
 
     @property
-    def fai(self):
+    def fai(self) -> pathlib.Path:
         if self.final_name is None:
             return None
         return pathlib.Path(str(self.final_name) + ".fai")
     
     @property
-    def nbin(self):
+    def nbin(self) -> pathlib.Path:
         if self.final_name is None:
             return None
         return pathlib.Path(self.no_exts + "_nbin.csv")
 
     @property
-    def nbuc(self):
+    def nbuc(self) -> pathlib.Path:
         if self.final_name is None:
             return None
         return pathlib.Path(self.no_exts + "_nbuc.csv")
 
     @property
-    def bed(self):
+    def bed(self) -> pathlib.Path:
         if self.final_name is not None:
             return pathlib.Path(self.no_exts + "_nreg.bed")
         return None
 
     @property
-    def dict(self):
+    def dict(self) -> pathlib.Path:
         if self.final_name is None:
             return None
         return pathlib.Path(self.no_exts + ".dict")

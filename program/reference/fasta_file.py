@@ -5,7 +5,13 @@ import logging
 import re
 import typing
 
+try:
+    import tqdm
+except:
+    tqdm = None
+
 from .genome import Genome
+
 
 class Run:
     """Represent a single run of a specific letter"""
@@ -19,6 +25,7 @@ class Run:
 
     def close(self, length: int):
         self.length = length
+
 
 class Sequence:
     """Represent a collection of runs of a specific letter."""
@@ -80,23 +87,24 @@ class Sequence:
                 f"Expected {self.length} base pairs in this sequence but processed {position}."
             )
 
+
 class FastaFile:
     """Represent a collection of sequences"""
 
-    def __init__(
-        self,
-        genome: Genome
-    ):
+    def __init__(self, genome: Genome):
+        self._progressbar = None
         self.genome = genome
         if not self.genome.dict.exists():
-            raise RuntimeError(
-                f"Unable to find dictionary in {self.genome.dict.name}."
-            )
+            raise RuntimeError(f"Unable to find dictionary in {self.genome.dict.name}.")
         self._dict = FastaDictionary(self.genome.dict)
 
     @property
     def model_name(self):
         return self.genome.final_name.name
+
+    def _progress(self, sequence, position, total):
+        if self._progressbar is not None:
+            self._progressbar.update(position)
 
     def _sequence_from_line(self, line: str) -> Sequence:
         # Processing the opening of a new sequence in a FASTA file.
@@ -106,9 +114,22 @@ class FastaFile:
         if sequence_name not in self._dict.entries:
             raise ValueError(f"Sequence {sequence_name} is not present in dictionary.")
         sequence_length = self._dict.entries[sequence_name].length
+
+        if self._progressbar is not None:
+            self._progressbar.close()
+            self._progressbar = None
+
+        if tqdm is not None:
+            self._progressbar = tqdm.tqdm(total=sequence_length, desc=sequence_name)
+
         return Sequence(sequence_name, sequence_length)
 
-    def _process_file(self, fp: typing.TextIO, letter: str) -> typing.List[Sequence]:
+    def _process_file(
+        self,
+        fp: typing.TextIO,
+        letter: str,
+        progress: typing.Callable[[int, int, int], None],
+    ) -> typing.List[Sequence]:
         sequences = collections.OrderedDict()
         pattern = re.compile(rf"{letter}+")
 
@@ -138,7 +159,9 @@ class FastaFile:
                     raise RuntimeError(
                         f"Found a duplicated sequence: {current_sequence.name}"
                     )
-                logging.debug(f"{self.genome.final_name.name}: Processing sequence {current_sequence.name}")
+                logging.debug(
+                    f"{self.genome.final_name.name}: Processing sequence {current_sequence.name}"
+                )
                 sequences[current_sequence.name] = current_sequence
                 position = 0
                 continue
@@ -168,6 +191,8 @@ class FastaFile:
                 if match.end() < len(line):
                     current_sequence.close_run(match.end() + position)
             position += len(line)
+            if progress is not None:
+                progress(current_sequence.name, len(line), current_sequence.length)
 
         # File is terminated: close the current sequence and the open run (if any).
         if current_sequence is None:
@@ -175,7 +200,14 @@ class FastaFile:
         current_sequence.end(position)
         return list(sequences.values())
 
-    def count_letters(self, letter : str = "N") -> typing.List[Sequence]:
+    def count_letters(
+        self,
+        letter: str = "N",
+        progress: typing.Callable[[int, int, int], None] = False,
+    ) -> typing.List[Sequence]:
+        if progress is False:
+            progress = lambda seq, pos,total: self._progress(seq, pos, total)
+        
         with gzip.open(self.genome.final_name, "rt") as f:
-            sequences = self._process_file(f, letter)
+            sequences = self._process_file(f, letter, progress)
         return sequences

@@ -14,28 +14,38 @@ class GzipAction(enum.Enum):
 class External:
     """Wrapper around External files"""
 
-    def get_default_directory():
+    def get_bio_default_directory():
         if "win" in sys.platform:
             return pathlib.Path("cygwin64", "usr", "local", "bin")
         else:
-            return pathlib.Path("usr", "bin")
+            return pathlib.Path("/", "usr", "bin")
+    
+    def get_sys_default_directory():
+        if "win" in sys.platform:
+            return pathlib.Path("cygwin64", "bin")
+        else:
+            return pathlib.Path("/", "bin")
     
     def __init__(self, installation_directory: Path = None) -> None:
         if installation_directory == None:
-            installation_directory = External.get_default_directory()
+            installation_directory_bio = External.get_bio_default_directory()
+            installation_directory_sys = External.get_sys_default_directory()
+        else:
+            installation_directory_sys = installation_directory_bio = installation_directory
         
-        if not installation_directory.exists():
+        if not installation_directory_bio.exists():
             raise FileNotFoundError(
-                f"Unable to find root directory for External: {str(installation_directory)}"
+                f"Unable to find root directory for External: {str(installation_directory_bio)}"
             )
             
-        self._installation_directory = installation_directory
-        self._htsfile = str(self._installation_directory.joinpath("htsfile"))
-        self._samtools = str(self._installation_directory.joinpath("samtools"))
-        self._tabix = str(self._installation_directory.joinpath("tabix"))
-        self._bgzip = str(self._installation_directory.joinpath("bgzip"))
-        self._bcftools = str(self._installation_directory.joinpath("bcftools"))
-        self._gunzip = str(self._installation_directory.joinpath("gzip"))
+        self._installation_directory_bio = installation_directory_bio
+        self._installation_directory_sys = installation_directory_sys
+        self._htsfile = str(self._installation_directory_bio.joinpath("htsfile"))
+        self._samtools = str(self._installation_directory_bio.joinpath("samtools"))
+        self._tabix = str(self._installation_directory_bio.joinpath("tabix"))
+        self._bgzip = str(self._installation_directory_bio.joinpath("bgzip"))
+        self._bcftools = str(self._installation_directory_bio.joinpath("bcftools"))
+        self._gzip = str(self._installation_directory_sys.joinpath("gzip"))
 
         files_collection = [
             self._htsfile,
@@ -43,7 +53,9 @@ class External:
             self._tabix,
             self._bgzip,
             self._bcftools,
+            self._gzip
         ]
+
         unix_files = all([x for x in files_collection if Path(x).exists()])
         win_files = all([x for x in files_collection if Path(x + ".exe").exists()])
         if not (unix_files or win_files):
@@ -88,71 +100,59 @@ class External:
         arguments = [self._samtools, "dict", str(path), "-o", str(output)]
         process = subprocess.run(arguments, check=True, capture_output=True)
         return process.stdout.decode("utf-8")
-
-    def gzip(
-        self, path: Path, action: GzipAction = GzipAction.Compress, index: Path = None
-    ) -> Path:
-        """Wrapper around bgzip executable, used to compress a file
-        in the bgzip format.
-
-        Args:
-            path (Path): Path for the file to be compressed.
-            output (Path, optional): Output file path. Defaults to None.
-
-        Returns:
-            str: Output of the bgzip command.
-        """
-        action_flag = None
+    
+    def _gzip_filename(self, input:Path, action: GzipAction):
         if action == GzipAction.Compress:
-            action_flag = ""
-            output = Path(str(path) + ".gz")
+            return Path(str(input) + ".gz")
         elif action == GzipAction.Decompress:
-            action_flag = "-d"
-            if len(path.suffixes) == 0:
+            if len(input.suffixes) == 0:
                 raise RuntimeError(
-                    f"Unable to decompress, invalid filename {str(path)}"
+                    f"Unable to determine decompressed filename, invalid filename {str(input)} (no extensions)."
                 )
-
-            output = Path(path.name.rstrip(path.suffixes[-1]))
+            return Path(str(input).rstrip(input.suffixes[-1]))
+        elif action == GzipAction.Reindex:
+            return Path(str(input) + ".gzi")
         else:
             raise RuntimeError(f"Action {action.name} not supported.")
-
-        arguments = [self._gunzip, action_flag, str(path)]
+            
+    def gzip(
+        self, input: Path, output: Path, action: GzipAction = GzipAction.Decompress) -> Path:
+        if output.exists():
+            raise RuntimeError(f"Trying to decompress {str(input)} but the destination file {str(output)} exists.")
+        inferred_filename = self._gzip_filename(input, action)
+        
+        action_flags = {
+            GzipAction.Compress:"",
+            GzipAction.Decompress:"-d"
+        }
+        
+        arguments = [self._gzip, action_flags[action], str(input)]
         process = subprocess.run(arguments, capture_output=True)
-        return output
+        
+        if process.returncode != 0:
+            if "trailing garbage" not in process.stderr.decode():
+                raise RuntimeError(f"gzip failed: {process.stderr}")
+        
+        if inferred_filename != output:
+            inferred_filename.rename(output)
 
     def bgzip(
-        self, path: Path, action: GzipAction = GzipAction.Compress, index: Path = None
+        self, input: Path, output: Path, action: GzipAction = GzipAction.Compress, index: Path = None
     ) -> Path:
-        """Wrapper around bgzip executable, used to compress a file
-        in the bgzip format.
+        if output.exists():
+            raise RuntimeError(f"Trying to decompress {str(input)} but the destination file {str(output)} exists.")
+        
+        action_flags = {
+            GzipAction.Compress:"-if",
+            GzipAction.Decompress:"-d",
+            GzipAction.Reindex: "-r"
+        }
+        inferred_filename = self._gzip_filename(input, action)
 
-        Args:
-            path (Path): Path for the file to be compressed.
-            output (Path, optional): Output file path. Defaults to None.
-
-        Returns:
-            str: Output of the bgzip command.
-        """
-        action_flag = None
-        if action == GzipAction.Compress:
-            action_flag = "-if"
-            output = [Path(str(path) + ".gz"), Path(str(path) + ".gzi")]
-        elif action == GzipAction.Decompress:
-            action_flag = "-d"
-            if len(path.suffixes) == 0:
-                raise RuntimeError(
-                    f"Unable to decompress, invalid filename {str(path)}"
-                )
-
-            output = Path(path.name.rstrip(path.suffixes[-1]))
-        elif action == GzipAction.Reindex:
-            action_flag = "-r"
-            output = Path(str(path) + ".gzi")
-
-        arguments = [self._bgzip, action_flag, str(path), "-@", "32"]
+        arguments = [self._bgzip, action_flags[action], str(input), "-@", "32"]
         process = subprocess.run(arguments, capture_output=True)
-        return output
+        if inferred_filename != output:
+            inferred_filename.rename(output)
 
     def tab_indexer(
         self,
@@ -164,6 +164,6 @@ class External:
 
     def idxstats(self, input: Path):
         """Generate BAM index statistics"""
-        arguments = [self._External, input]
+        arguments = [self._samtools, "idxstat", input]
         process = subprocess.run(arguments)
         return process.stdout.decode("utf-8")

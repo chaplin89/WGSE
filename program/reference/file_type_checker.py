@@ -37,7 +37,7 @@ class FileTypeChecker:
     def __init__(self, external: External) -> None:
         self._external = external
 
-    def get_type(self, file: Path) -> Type | None:
+    def get_type(self, file: Path) -> Type:
         """Get a Type starting from a file path.
 
         Args:
