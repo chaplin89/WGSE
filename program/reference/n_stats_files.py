@@ -43,7 +43,7 @@ from .external import External
 from .genome import Genome
 
 
-class NStatisticsFiles:
+class NStatsFiles:
     """Manage the creation of statistics files for Ns."""
 
     def __init__(
@@ -184,7 +184,7 @@ if __name__ == "__main__":
         external.make_dictionary(args.reference, genome.dict)
     
     fasta_file = FastaFile(genome)
-    unknown_bases_stats = NStatisticsFiles(
+    unknown_bases_stats = NStatsFiles(
         fasta_file, args.long_run_threshold, args.buckets_number,
     )
     unknown_bases_stats.generate_stats()

@@ -11,7 +11,7 @@ from .compressor import Compressor
 from .downloader import Downloader
 from .file_type_checker import FileTypeChecker, Type
 from .genome import Genome
-from .n_statistics_files import NStatisticsFiles
+from .n_stats_files import NStatsFiles
 from .csv_metadata_loader import CsvMetadataLoader
 
 class FileStatus(enum.Enum):
@@ -108,7 +108,7 @@ class GenomeRepository:
         if not all([genome.bed.exists(), genome.nbin.exists(), genome.nbuc.exists()]):
             logging.info(f"{genome.code}-{genome.source.name}: Generating Ns stats files.")
             fasta_file = FastaFile(genome)
-            ub = NStatisticsFiles(fasta_file)
+            ub = NStatsFiles(fasta_file)
             ub.generate_stats()
         else:
             logging.info(f"{genome.code}-{genome.source.name}: Ns stats files exist.")

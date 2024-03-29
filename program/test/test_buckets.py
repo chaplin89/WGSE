@@ -1,5 +1,5 @@
 from program.reference.buckets import Buckets
-from program.reference.n_statistics_files import Sequence
+from program.reference.n_stats_files import Sequence
 import pytest
 
 def test_single_bucket():
