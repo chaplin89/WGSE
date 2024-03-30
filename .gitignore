@@ -10,3 +10,4 @@ yleaf
 **/*.pyc
 reference/**
 bare_minimum
+.~*

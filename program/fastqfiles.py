@@ -21,8 +21,9 @@ import os       # for path, stat
 import re
 import gzip
 from math import sqrt
+import logging
 
-from utilities import DEBUG, is_legal_path, nativeOS, universalOS, unquote, wgse_message
+from utilities import is_legal_path, nativeOS, universalOS, unquote, wgse_message
 from commandprocessor import run_bash_script
 import settings as wgse
 
@@ -76,7 +77,7 @@ def process_FASTQ(fastq_FN, paired=True):
         numsegs = int(fastq_stats.st_size / (char_cnt / (line_cnt / 4)))
         numsegs *= 2 if paired else 1
 
-    DEBUG(
+    logging.debug(
         f'FASTQ Stats: ID - "{seqid}, # segs - {numsegs:,d},' 
         f' avg read length - {avg_read_length:,.0f}, read len stddev - {avg_read_stddev:,.0f}')
     return seqid, numsegs, avg_read_length          # e.g. return "Illumima", 660000000, 150
@@ -94,7 +95,7 @@ def determine_sequencer(seqid):
     # Should be guaranteed match as last one is wildcard and returns unknown
     for key, val in wgse.sequencers.items():
         # Should be stored compiled but the dictionary is defined in settings without acess to re module
-        # DEBUG(f'Sequencer Key to try: {key}')
+        # logging.debug(f'Sequencer Key to try: {key}')
         if re.compile(val[0]).match(seqid):
             if key != "Unknown":
                 return key

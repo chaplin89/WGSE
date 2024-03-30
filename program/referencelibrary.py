@@ -24,12 +24,13 @@
     for the companion document developed with the work here.
 """
 import csv
+import logging
 import os.path
 import shutil
 
 import settings as wgse
 from commandprocessor import run_bash_script
-from utilities import DEBUG, nativeOS, is_legal_path, unquote, wgse_message
+from utilities import  nativeOS, is_legal_path, unquote, wgse_message
 
 
 class ReferenceLibrary:
@@ -98,7 +99,7 @@ class ReferenceLibrary:
                 wgse_message("error", 'InvalidRefLibTitle', True,
                              wgse.lang.i18n['errRefLibPath'].replace("{{DIR}}", dir_FP))
             else:
-                DEBUG(f'***ERROR: Reference Library directory path is not valid: "{dir_FP}"')
+                logging.debug(f'***ERROR: Reference Library directory path is not valid: "{dir_FP}"')
             return
 
         dir_FP += '/' if dir_FP[-1] != '/' else ''          # Assure trailing slash; universalOS so forward slash
@@ -121,14 +122,14 @@ class ReferenceLibrary:
 
         # Initial setup of Default dir in WGS installation folder (reference/); may not exist if moved in settings
         if not self.default_FP and not valid:
-            DEBUG(f'***WARNING: the default Reference Library does not exist or is empty (moved?): "{dir_FP}"')
+            logging.debug(f'***WARNING: the default Reference Library does not exist or is empty (moved?): "{dir_FP}"')
 
         elif self.default_FP and not valid and not self.valid:
             if wgse.lang.i18n:
                 wgse_message("error", 'InvalidRefLibTitle', True,
                              wgse.lang.i18n['errRefLibEmpty'].replace("{{DIR}}", dir_oFP))
             else:
-                DEBUG(f'***WARNING: Existing and new Reference Library have no content: "{self.FP}" "{dir_FP}"')
+                logging.debug(f'***WARNING: Existing and new Reference Library have no content: "{self.FP}" "{dir_FP}"')
             return
 
         # Does current reflib setting exist and have content but new one does not? If so, move current content to new
@@ -146,7 +147,7 @@ class ReferenceLibrary:
                     "{{SIZE}}", sz_str).replace("{{SRC}}", self.FP).replace("{{DST}}", dir_FP)
                 if not wgse_message("okcancel", 'ConfirmationRefLibTitle', True, mesg):
                     return
-            DEBUG(f'*** WARNING: Moving {sz_str} from folder {self.FP} to {dir_FP}.')
+            logging.debug(f'*** WARNING: Moving {sz_str} from folder {self.FP} to {dir_FP}.')
 
             # Perform the move of the existing reference library to the new location
             shutil.move(self.oFP, os.path.dirname(dir_oFP[:-1]), copy_function=shutil.copy2)
@@ -166,7 +167,7 @@ class ReferenceLibrary:
 
         self._load_genomes_csv()        # May have changed source of genomes.csv file
 
-        DEBUG(f'New Reflib Directory: {self.FP}')
+        logging.debug(f'New Reflib Directory: {self.FP}')
 
     @staticmethod
     def getmt(oFN):
@@ -204,7 +205,7 @@ class ReferenceLibrary:
             genomescsv_mt = self.getmt(genomescsv)           # Update modified time for reference/genomes/genoms.csv file
 
         if genomescsv_mt == 0:
-            DEBUG(f'*** ERROR No valid genomes.csv file found at {genomescsv}')
+            logging.debug(f'*** ERROR No valid genomes.csv file found at {genomescsv}')
             return 1
 
         # With latest, valid genomes.csv file, read in content
@@ -214,7 +215,7 @@ class ReferenceLibrary:
 
             self._keys = []
             for genome in genomes:
-                # DEBUG(f'{genome}')
+                # logging.debug(f'{genome}')
 
                 # Convert "." shortcut in genomes.csv final file name column to have initial file name value
                 # note: working from genomes.csv entry directly before converting to dictionary entry; so +2
@@ -243,7 +244,7 @@ class ReferenceLibrary:
 
                 self._askgenomes[key] = f'{title:>30}, {name:>5}, {mito:>6}, {int(sns):5,d} SNs'     # 56 char field
 
-        DEBUG(f'Loaded genomes.csv, {len(self._genomes)} entries')
+        logging.debug(f'Loaded genomes.csv, {len(self._genomes)} entries')
 
     def refgenome_codes(self):
         return self._keys
@@ -361,7 +362,7 @@ class ReferenceLibrary:
             elif "LN:154259664" in Header:  # Must be plain CHM13 v0.9
                 Refgenome = RefgenomeNew = "T2Tv09"
             else:  # Think it is T2T / HPP build but cannot recognize Y or X length
-                DEBUG(f'Unrecognized T2T / HPP model; no known X and/or Y length in BAM.')
+                logging.debug(f'Unrecognized T2T / HPP model; no known X and/or Y length in BAM.')
                 Refgenome = RefgenomeNew = None
             if RefgenomeNew == "T2Tv20" and SNTypeC == "Acc":
                 Refgenome = RefgenomeNew = "T2Tv20a"
@@ -427,7 +428,7 @@ class ReferenceLibrary:
         else:
             Refgenome = RefgenomeNew = None
 
-        DEBUG(f'Ref Genome: {Refgenome}, by New nomenclature: {RefgenomeNew}')
+        logging.debug(f'Ref Genome: {Refgenome}, by New nomenclature: {RefgenomeNew}')
         return Refgenome, RefgenomeNew
 
     def missing_refgenome(self, refgenome_qFN, required=True, parent=wgse.window, ref_genome=""):
@@ -460,7 +461,7 @@ class ReferenceLibrary:
         # Need to reverse lookup from filename to get refgenome key; simply for error reporting
         refgenome = [key for key in self._genomes if self._genomes[key][self._final_file] == refgenome_FBS][0]
         if not refgenome:
-            DEBUG(f'***Internal error: passed in {refgenome_FBS} not found in genomes.csv')
+            logging.debug(f'***Internal error: passed in {refgenome_FBS} not found in genomes.csv')
 
         # Give user a chance to resolve the issue by fetching the missing file (either allow us or they do it)
         message = wgse.lang.i18n["errRefGenFileMissing"]
@@ -628,14 +629,14 @@ def characterize_ref_genome(bamsq_header):
     model['Gen']   = 38 if 248956422 in [GRCh, hg] else (37 if 249250621 == GRCh else (19 if 249250621 == hg else 0))
     model['Mito']  = 'rCRS' if Mito == 16569 else ('Yoruba' if Mito == 16571 else 'Unk')
     model['Type']  = 'hs37d5' if bamsq_header.get('HS37D5', 0) > 0 else model['Who'] + str(model['Gen'])
-    # DEBUG(f'Model: {model}')
+    # logging.debug(f'Model: {model}')
     return model
 
 
 # DEPRECATED; available from .dict file which is needed anyway. So create that and simply cut from there
 # Use local refgenome FA to create a pseudo BAM SN header (upcase, sort -d) to generate a unique md5 hash key
 def proc_ref_genome(oFN):
-    DEBUG(f"Starting Final Assembly: {oFN}")
+    logging.debug(f"Starting Final Assembly: {oFN}")
     # Process FASTA File; simple 2 line inner loop due to BioPython FASTA file processor
     bamsq_header = {}
     with gzip.open(oFN, "rt") as f:      # BGZF files can be simply unzip'ed by gzip

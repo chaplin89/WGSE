@@ -13,7 +13,7 @@ try:
 except ImportError:
     from tkinter import Button
 
-from utilities import nativeOS, DEBUG, unquote, wgse_message
+from utilities import nativeOS, unquote, wgse_message
 from commandprocessor import run_bash_script
 # from mainwindow import mainwindow_resume      # Localized inside cancel_autosomal_formats_window() due to loop
 import settings as wgse

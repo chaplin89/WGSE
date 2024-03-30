@@ -31,6 +31,8 @@ import stat         # stat.S_IXxxx flags
 import time         # time.time()
 import subprocess   # Popen, run, etc
 import platform
+import logging
+
 if platform.uname().system != "Linux":
     from wakepy import set_keepawake, unset_keepawake   # Ugly, but cannot import on Ubuntu / Linux aparently
 else:
@@ -40,7 +42,7 @@ else:
 
 from tkinter import Toplevel, Label
 
-from utilities import DEBUG, wgse_message, offset, time_label
+from utilities import wgse_message, offset, time_label
 import settings as wgse
 # from mainwindow import mainwindow_resume     # embedded in button_continueAfterBatchJob to break loop
 
@@ -136,11 +138,11 @@ def run_external_program(script_code, command):
         stdout, stderr = p.communicate()
         stop_ctime = time.ctime()
         tlabel = time_label(maxtime)
-        DEBUG(f"--- FAILURE to finish before timeout {tlabel}: {command_str} (@ {stop_ctime})----")
+        logging.debug(f"--- FAILURE to finish before timeout {tlabel}: {command_str} (@ {stop_ctime})----")
         raise
     except subprocess.CalledProcessError:
         # Todo need to handle different process termination conditions
-        DEBUG(f"--- FAILURE to execute: {command_str} ----")
+        logging.debug(f"--- FAILURE to execute: {command_str} ----")
         raise
 
     if wgse.gui or wgse.DEBUG_MODE:
@@ -152,20 +154,20 @@ def run_external_program(script_code, command):
 def cancelWait():
     global pleaseWaitWindow
 
-    # DEBUG("cancelWait; unfortunately not yet implemented!")
+    # logging.debug("cancelWait; unfortunately not yet implemented!")
     # TODO Setup exception that can be caught by threads executing pleaseWait
     pleaseWaitWindow.destroy()
 
 
 def abortWait():
     # Todo implement abortWait()
-    # DEBUG("abortWait called; not yet implemented.")
+    # logging.debug("abortWait called; not yet implemented.")
     cancelWait()
 
 
 def finishWait():
     # Todo implement finishWait()
-    # DEBUG("finishWait called; not yet implemented.")
+    # logging.debug("finishWait called; not yet implemented.")
     cancelWait()
 
 
@@ -179,7 +181,7 @@ def show_pleasewait_window(script_code, parent):
     # etime = round(min(1.5, etime * wgse.BAM.relfsize)) # See note below on adjusting time relative to 60 GB nominal
     tlabel = time_label(etime) if etime else verbose_reason
 
-    DEBUG(f'In Please Wait: {verbose_reason}, Expected Wait: {tlabel}, Start')
+    logging.debug(f'In Please Wait: {verbose_reason}, Expected Wait: {tlabel}, Start')
     
     """ 
         We will adjust expected wait time by amount relative to nominal 45 GB 30x WGS file size. Floor of 0.01 adj.
@@ -242,7 +244,7 @@ def run_bash_script(script_code, script_contents, parent=None, direct=False):
     else:
         command = script_contents   # Already passed as a list; not a multi-line string like above
 
-    DEBUG(f'Starting command: {" ".join(command).strip()}')
+    logging.debug(f'Starting command: {" ".join(command).strip()}')
 
     # Keepawake on Linux requires elevated (SUDO) privileges. No way to request a drop of elevated.
     # elevate(show_console=True)  # Request elevated privilages from the user on Linux

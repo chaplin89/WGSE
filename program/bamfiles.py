@@ -26,10 +26,11 @@ import os                   # for path, stat
 # import re                   # For help shortening BAM base descriptions
 from math import sqrt       # for process_bam_body
 
-from utilities import DEBUG, is_legal_path, nativeOS, universalOS, unquote, Error, wgse_message, check_exists
+from utilities import is_legal_path, nativeOS, universalOS, unquote, Error, wgse_message, check_exists
 from commandprocessor import run_bash_script, simple_command
 from fastqfiles import determine_sequencer
 import settings as wgse
+import logging
 
 
 ######################################################################################################################
@@ -241,9 +242,9 @@ class BAMFile:
         elif "SO:unknown" in self.Header:       # Unaligned BAM
             self.Sorted = None
         else:
-            DEBUG(f"BAM Sorted? SO record not found or understood in header.")
+            logging.debug(f"BAM Sorted? SO record not found or understood in header.")
             raise BAMContentError('errBAMHeader')   # No @HD record to start the file?
-        DEBUG(f'BAM Sorted? {"Unaligned" if self.Sorted is None else "Coord" if self.Sorted else "Name"}')
+        logging.debug(f'BAM Sorted? {"Unaligned" if self.Sorted is None else "Coord" if self.Sorted else "Name"}')
 
         self.Indexed = self.check_for_bam_index()
 
@@ -340,13 +341,13 @@ class BAMFile:
             if first_time:
                 field = flags_file.readline().split("\t")
                 self.Sequencer = determine_sequencer(field[0]) if field and field[0] else "Unknown"
-                DEBUG(f'Sequencer: {self.Sequencer} (ID: {field[0]})')
+                logging.debug(f'Sequencer: {self.Sequencer} (ID: {field[0]})')
 
             for flag_line in flags_file:
                 field = flag_line.split("\t")
 
                 # field[1] = f'{int(field[1]):#014b}'
-                # DEBUG(f'FLAG: {field[1]}, Flen: {len(field[9])}, RNEXT: {field[6]}, TLEN: {field[8]}')
+                # logging.debug(f'FLAG: {field[1]}, Flen: {len(field[9])}, RNEXT: {field[6]}, TLEN: {field[8]}')
 
                 if int(field[1]) & 0x400:
                     dupcnt += 1
@@ -362,7 +363,7 @@ class BAMFile:
                     lenstd = sqrt(lenM2 / (lencnt - 1)) if lencnt > 2 else 0
                     sizstd = sqrt(sizM2 / (sizcnt - 1)) if sizcnt > 2 else 0
                     mapstd = sqrt(mapM2 / (mapcnt - 1)) if mapcnt > 2 else 0
-                    DEBUG(f'@Count: {lencnt} - Read Mean: {lenmean:,.0f}, stddev={lenstd:,.0f}; '
+                    logging.debug(f'@Count: {lencnt} - Read Mean: {lenmean:,.0f}, stddev={lenstd:,.0f}; '
                                            f'Insert Mean: {sizmean:,.0f}, stddev={sizstd:,.0f}; '
                                              f'MapQ Mean: {mapmean:,.0F}, stddev={mapstd:,.0f}')
 
@@ -402,8 +403,8 @@ class BAMFile:
                 mapdelta2 = mval - mapmean
                 mapM2 += mapdelta * mapdelta2
 
-        DEBUG(f'Read Length Count: {lencnt:,}, Insert Size Count: {sizcnt:,}')
-        DEBUG(f'Read Length Mean: {lenmean:,.0f}, Insert Size Mean: {sizmean:,.0f}')
+        logging.debug(f'Read Length Count: {lencnt:,}, Insert Size Count: {sizcnt:,}')
+        logging.debug(f'Read Length Mean: {lenmean:,.0f}, Insert Size Mean: {sizmean:,.0f}')
 
         # Some things are always determinate in the first, shorter pass
         if first_time:
@@ -412,7 +413,7 @@ class BAMFile:
             self.ReadType = "Paired" if readtyp > nstep else \
                             "Single" if readtyp < -nstep else \
                             "Unknown"  # Schroedingers paradox
-            DEBUG(f'Read Segment Type: {self.ReadType}-end (scale:{readtyp})')
+            logging.debug(f'Read Segment Type: {self.ReadType}-end (scale:{readtyp})')
 
             if self.ReadType == "Unknown":
                 # FLAG indicates a near equal mix of paired and single end reads (within 10%)
@@ -451,12 +452,12 @@ class BAMFile:
                 self.pup_q30 = bin30 / tot_cnt
                 self.pup_q20 = bin20 / tot_cnt
 
-            DEBUG(f'Base Quality: >Q30 {self.pup_q30:.0%}, >Q20 {self.pup_q20:.0%}, Total Count {tot_cnt}')
+            logging.debug(f'Base Quality: >Q30 {self.pup_q30:.0%}, >Q20 {self.pup_q20:.0%}, Total Count {tot_cnt}')
 
         # Nanopore long-read is highly variable; so need to read many more to get a better mean
         if first_time and lenmean > 410 and any([x in self.Sequencer for x in ["Nanopore"]]):   # Not PacBio
             #  Although often less total reads when a longer read length, need more to stabilize values from sample
-            DEBUG("Long Read BAM ... reprocessing to get the read length using more read samples")
+            logging.debug("Long Read BAM ... reprocessing to get the read length using more read samples")
             self.process_bam_body(reentrant=[readtyp, dupcnt, totseg, lencnt, lenmean, lenM2,
                                              sizcnt, sizmean, sizM2, mapcnt, mapmean, mapM2])
             return      # Rest of settings will be done in second run only
@@ -466,7 +467,7 @@ class BAMFile:
         # Calculate final standard deviation (sqrt of final variance) for read length and insert size
         if lencnt > 2:
             lenstd = sqrt(lenM2 / (lencnt - 1))
-            DEBUG(f'Read Length: {lenmean:,.0f}, stddev={lenstd:,.0f}')
+            logging.debug(f'Read Length: {lenmean:,.0f}, stddev={lenstd:,.0f}')
             self.avg_read_length = lenmean
             self.avg_read_stddev = lenstd
         else:
@@ -474,13 +475,13 @@ class BAMFile:
 
         if self.ReadType == "Paired" and sizcnt > 2:
             sizstd = sqrt(sizM2 / (sizcnt - 1))
-            DEBUG(f'Insert Size: {sizmean:,.0f}, stddev={sizstd:,.0f}')
+            logging.debug(f'Insert Size: {sizmean:,.0f}, stddev={sizstd:,.0f}')
             self.insert_size = sizmean
             self.insert_stddev = sizstd
 
         # Calculate mean / std dev of MapQ score (note: most sequencers are 0-60)
         mapstd = sqrt(mapM2 / (mapcnt - 1))
-        DEBUG(f'MapQ: {mapmean:,.0F}, stddev={mapstd:,.0f}')
+        logging.debug(f'MapQ: {mapmean:,.0F}, stddev={mapstd:,.0f}')
         self.mapq = mapmean                 # 60 is the max we ever see. Convert to percent?
         self.mapq_stddev = mapstd
 
@@ -597,8 +598,8 @@ class BAMFile:
                     stats_altcont[4] += map_seg_read
                     chrom_types['O'] += map_seg_read
 
-        DEBUG(f"Chrom_types: {str(chrom_types)}")
-        DEBUG(f"Alt Contig values: {str(stats_altcont)}")
+        logging.debug(f"Chrom_types: {str(chrom_types)}")
+        logging.debug(f"Alt Contig values: {str(stats_altcont)}")
 
         # Determine gender of sample from counts of chromosome type counts; always initialized to 0 if none encountered
         if chrom_types["Y"] == 0 and chrom_types["X"] == 0:  # No X nor Y reads; both 0 so no gender determination
@@ -613,7 +614,7 @@ class BAMFile:
         #   then raise / report error of BAM content as we do not know what we have.
         #   Could be we just did not recognize the chromosome naming and hence all alt_contigs
         if not (stats_autos or stats_somal or stats_mito or chrom_types['*'] > 0):
-            DEBUG("ERROR: BAM has no human genome model elements, what to do?")
+            logging.debug("ERROR: BAM has no human genome model elements, what to do?")
             raise BAMContentError('errBAMNonHumanGenome')
 
         # Numerically sort the chromosomes by chromosome number before building full table    # REH 20Mar2020
@@ -1145,7 +1146,7 @@ class BAMFile:
             self.Build, self.RefMito = (19, "Yoruba")
         # Todo handling RSRS model -- look for spacers?
 
-        DEBUG(f"Build: {self.Build:3d}, Mito: {self.RefMito}; SN#:{self.SNCount}; SN: {self.SNTypeC}, {self.SNTypeM}")
+        logging.debug(f"Build: {self.Build:3d}, Mito: {self.RefMito}; SN#:{self.SNCount}; SN: {self.SNTypeC}, {self.SNTypeM}")
 
         # Determine reference model from header
         self.Refgenome, self.RefgenomeNew = wgse.reflib.determine_refmodel(self.Header, self.Build, self.RefMito,
@@ -1154,13 +1155,13 @@ class BAMFile:
         # If reference model still not set, simply ask the user
         if not self.Refgenome and self.Build > 0 and self.SNCount > 0:
             ask_refgenome(inBAM=True)      # Ignore return value as sets self.Refgenome in call
-            DEBUG(f'Ref Genome (User): {self.Refgenome}')
+            logging.debug(f'Ref Genome (User): {self.Refgenome}')
         # else   # BAM header seems to be empty of required @SQ fields. Unaligned BAM?
 
         # Set reference genome file based on reference genome (code) determined
         self.Refgenome_qFN = wgse.reflib.get_refgenome_qFN(self.Refgenome)
 
-        DEBUG(f'Ref Genome File: {unquote(self.Refgenome_qFN)}')
+        logging.debug(f'Ref Genome File: {unquote(self.Refgenome_qFN)}')
 
     def chrom_types_str(self):
         """

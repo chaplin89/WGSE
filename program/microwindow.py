@@ -12,6 +12,7 @@
 # License: GNU General Public License v3 or later
 # A copy of GNU GPL v3 should have been included in this software package in LICENSE.txt.
 
+import logging
 import sys      # for argv[] if called as standalone program
 import os       # for os.path
 # import shutil   # for shutil.move
@@ -22,7 +23,7 @@ try:
 except ImportError:
     from tkinter import Button
 
-from utilities import nativeOS, DEBUG, unquote, wgse_message, offset
+from utilities import nativeOS,  unquote, wgse_message, offset
 from commandprocessor import run_bash_script
 # from mainwindow import mainwindow_resume      # Localized inside cancel_miroarray_window() due to loop
 import settings as wgse
@@ -612,7 +613,7 @@ def button_generate_selected():
         run_bash_script("ButtonMicroarrayDNA", commands, parent=microarrayWindow)
 
     else:       # Report whether reused AllSNPs or not
-        DEBUG("*** INFO: No microarray vendor format to regenerate; all already exist and are current.")
+        logging.debug("*** INFO: No microarray vendor format to regenerate; all already exist and are current.")
 
     # Note: always have checkbuttons_results[AllSNPs] set now so will never delete unless invalid size
     if not (reused or checkbuttons_results[targets.index("AllSNPs")]) or \

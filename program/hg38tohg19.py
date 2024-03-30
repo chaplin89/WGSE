@@ -19,9 +19,10 @@ import os.path  # for os.remove, os.path.exists
 
 from pyliftover import LiftOver     # Main heavyweight lifter
 
-from utilities import DEBUG, nativeOS, universalOS
+from utilities import nativeOS, universalOS
 from commandprocessor import run_bash_script
 import settings as wgse     # Imports WGSE environment as if sub-module (to get ref lib liftover chain file)
+import logging
 
 import string
 notabs = string.whitespace.replace("\t", "")
@@ -122,7 +123,7 @@ def my_hg38tohg19(file_oFPB):
 
         # Only single character line acceptable is blank header line starting with a hash (#)
         elif len(check_line) == 1 and check_line[0] != "#":
-            DEBUG(f'Bad source line, skipping: {line}')
+            logging.debug(f'Bad source line, skipping: {line}')
 
         # Check for header line; print to header file and go get next line
         elif check_line and (check_line[0] == "#" or check_line.startswith('"RSID') or
@@ -152,7 +153,7 @@ def my_hg38tohg19(file_oFPB):
 
         # Skip any embedded header, blank line and require atleast four fields (all are ill formatted entries)
         if len(line) < 1 or '#' == line[0] or len(line_tabs) < 4:
-            DEBUG(f'Skipping unknown format line: {line}')
+            logging.debug(f'Skipping unknown format line: {line}')
             continue
 
         # Name fields in the split line (if used)
@@ -166,7 +167,7 @@ def my_hg38tohg19(file_oFPB):
         lchrom, mode = map_chrom(origchrom)     # Map the chromosome name to something liftover understands
         if not lchrom:
             bad_chrom += 1
-            DEBUG(f'Skipping invalid chromosome name: {origchrom}, {origpos}')
+            logging.debug(f'Skipping invalid chromosome name: {origchrom}, {origpos}')
             continue
 
         # Actual call to pyliftover to convert positions ; requires UCSC / HGP chrom (chr) name convention

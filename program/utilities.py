@@ -18,6 +18,7 @@
   Classes: TemporaryFiles, LanguageStrings, OutputDirectory, FontTypes
   Routines to manipulate JSON files, and upgrade the WGSE program itself based on JSON version files
 """
+import logging
 import os           # for os.path.*, os.remove, os.listdir
 import shutil       # shutil.rmtree(), shutil.diskusage
 
@@ -60,12 +61,6 @@ def time_label(etime):
                 (int(etime / 60), 'minutes') if etime > 60 else \
                 (etime, 'seconds')
     return f"{time_exp[0]:3.1f} {time_exp[1]}" if time_exp[1] == 'hours' else f"{time_exp[0]:3d} {time_exp[1]}"
-
-
-def DEBUG(msg):
-    """ Old C Macro hack for programmer debug system; but remains as executed code in Python """
-    if wgse and wgse.DEBUG_MODE:         # Could use __debug__ but does not save much as calls have if statement then
-        print(f"DEBUG: {msg}")
 
 
 def offset(root_geometry, amount):
@@ -123,7 +118,7 @@ def nativeOS(path_FP):
         path_oFP = path_FP.replace("/", "\\")       # Change to backward slash
     else:
         path_oFP = path_FP      # Nothing to do for Linux, Unix, MacOS
-    # DEBUG(f'nativeOS: before {path_FP}, after {path_oFP}')
+    # logging.debug(f'nativeOS: before {path_FP}, after {path_oFP}')
     return path_oFP
 
 
@@ -147,7 +142,7 @@ def universalOS(path_oFP, wsl_fix=False):
             pass
     else:
         path_FP = path_oFP                          # Nothing to do for Linux, Unix, MacOS
-    # DEBUG(f'universalOS: before {path_oFP}, after {path_FP}')
+    # logging.debug(f'universalOS: before {path_oFP}, after {path_FP}')
     return path_FP
 
 
@@ -206,7 +201,7 @@ class TemporaryFiles:
             self.clean(True) if top_level else ""  # Start with a clean temporary files directory
         else:
             # Setting temporary files directory failed; really fatal and should probably exit (raise exception)
-            DEBUG(f'***ERROR: Cannot set default Temporary Files directory: {default_FP}')
+            logging.debug(f'***ERROR: Cannot set default Temporary Files directory: {default_FP}')
             del self
 
     def change(self, dir_FP):       # For when changing temporary files directory; including initialization
@@ -239,7 +234,7 @@ class TemporaryFiles:
                 wgse_message("error", 'InvalidTempDirTitle', True,
                              wgse.lang.i18n['errTempDirPath'].replace('{{tempf}}', dir_FP))
             else:
-                DEBUG(f'***ERROR: Bad Temporary File Path: {dir_FP}')
+                logging.debug(f'***ERROR: Bad Temporary File Path: {dir_FP}')
             return
 
         # OK, finally, everything is good and we can set the values
@@ -266,7 +261,7 @@ class TemporaryFiles:
                     wgse_message("error", 'InvalidTempDirTitle', True,
                              wgse.lang.i18n['errTempDirPath'].replace('{{tempf}}', self.oFP))
                 else:
-                    DEBUG(f'***ERROR: Cannot create Temporary File directory: {self.oFP}')
+                    logging.debug(f'***ERROR: Cannot create Temporary File directory: {self.oFP}')
 
         # Want to start with an empty temporary files directory to make sure not the wrong area we wipe out
         # So warn user if not empty.
@@ -275,7 +270,7 @@ class TemporaryFiles:
             if wgse.lang and wgse.lang.i18n:
                 wgse_message("warning", 'InvalidTempDirTitle', False, 'errTempDirNotEmpty')
             else:
-                DEBUG(f'+++WARNING: New Temporary File area already has content'
+                logging.debug(f'+++WARNING: New Temporary File area already has content'
                       f'(# files: {len(dir_contents)})\n{dir_contents}')
 
         self.update_free()
@@ -294,13 +289,13 @@ class TemporaryFiles:
         try:
             if os.path.isdir(oFN):      # yleaf tempYleaf dirctory is only commonly occuring directory
                 oFN += wgse.os_slash
-                DEBUG(f"Clean_Temp dir: {oFN} (DEBUG_MODE = {wgse.DEBUG_MODE})")
+                logging.debug(f"Clean_Temp dir: {oFN} (DEBUG_MODE = {wgse.DEBUG_MODE})")
                 shutil.rmtree(oFN) if force else ''  # Must be careful; hierarchical tree removal
             elif os.path.isfile(oFN):
-                DEBUG(f"Clean_Temp file: {oFN} (DEBUG_MODE = {wgse.DEBUG_MODE})")
+                logging.debug(f"Clean_Temp file: {oFN} (DEBUG_MODE = {wgse.DEBUG_MODE})")
                 os.remove(oFN) if force else ''
             else:
-                DEBUG(f"Cleanup element exists? {oFN} (ignoring)")
+                logging.debug(f"Cleanup element exists? {oFN} (ignoring)")
         except:     # Nobody likes except-all but best to just ignore if any of a number of things happen ..
             pass
 
@@ -388,7 +383,7 @@ class LanguageStrings:
         wb = openpyxl.load_workbook(self.language_oFN)
         ws = wb.active
         dim = ws.calculate_dimension()
-        DEBUG(f'Language.xlsx Dimension: {dim}')
+        logging.debug(f'Language.xlsx Dimension: {dim}')
 
         rows = ws.iter_rows(values_only=True)  # Iterator for rows of languages.xlsx spreadhseet
 
@@ -441,12 +436,12 @@ class LanguageStrings:
             pass
 
         elif language not in self.avail_langs:  # If not valid language to switch too ...
-            DEBUG(f'*** INTERNAL ERROR: Unknown language: "{language}"; ignoring')
+            logging.debug(f'*** INTERNAL ERROR: Unknown language: "{language}"; ignoring')
 
         else:                                   # Everything OK; setup new language translation for selected lang
             self.i18n = self._lang[language]    # Set wgse.lang.i18n to selected language dictionary
             self.language = language            # Save current language in class
-            DEBUG(f"New Language: {language}")
+            logging.debug(f"New Language: {language}")
             wgse.save_settings()
 
             if wgse.window and wgse.dnaImage:   # Only reset mainwindow if exists and setup (wgse.dnaImage is set)
@@ -482,7 +477,7 @@ class OutputDirectory:
         """
 
         if new_FP is None or len(new_FP) < 3:
-            # DEBUG(f"*** WARNING Bad new outdir path: {new_FP}")
+            # logging.debug(f"*** WARNING Bad new outdir path: {new_FP}")
             return
 
         # Assure trailing os_slash; universalOS value so always single forward slash
@@ -496,7 +491,7 @@ class OutputDirectory:
         if is_legal_path(new_FP) and os.path.exists(new_oFP) and os.path.isdir(new_oFP):
             self.FP = new_FP
             self.oFP = new_oFP
-            DEBUG(f"Output Path (final): {self.FP}")
+            logging.debug(f"Output Path (final): {self.FP}")
             if wgse.BAM:
                 self.FPB  = new_FP  + wgse.BAM.file_FB
                 self.oFPB = new_oFP + wgse.BAM.file_FB
@@ -536,11 +531,11 @@ class OutputDirectory:
             try:
                 os.makedirs(new_outdir_oFP, exist_ok=True)      # Will make the directory IF it does not exist
             except OSError as e:
-                DEBUG(f"*** BAM Default makedir failed: {new_outdir_oFP} with OSError {e.errno}")
+                logging.debug(f"*** BAM Default makedir failed: {new_outdir_oFP} with OSError {e.errno}")
                 return
 
             if not (os.path.exists(new_outdir_oFP) and os.path.isdir(new_outdir_oFP)):  # If still not exist, exit
-                DEBUG(f"*** BAM Default makedir failed: {new_outdir_oFP}")
+                logging.debug(f"*** BAM Default makedir failed: {new_outdir_oFP}")
                 return
 
             # Replace current outdir with new one
@@ -582,7 +577,7 @@ class FontTypes:
             self.facelg = "Arial Black"
             self.basept = 12
 
-        DEBUG(f'Fonts (init): face {self.face}, size {self.basept}, available {self.face in families()}')
+        logging.debug(f'Fonts (init): face {self.face}, size {self.basept}, available {self.face in families()}')
 
         self.default_face = self.face
         self.default_facelg = self.facelg           # Cannot be changed in UI or stored settings currently
@@ -606,7 +601,7 @@ class FontTypes:
             nametofont("TkDefaultFont").config(size=self.basept, family=self.face)
 
         if change:
-            DEBUG(f'Fonts (change): face {self.face}, size {self.basept}')
+            logging.debug(f'Fonts (change): face {self.face}, size {self.basept}')
             self.table = self._newtable()
 
     def _newtable(self):
@@ -653,7 +648,7 @@ def load_json(file):
     import requests
 
     if file is None or not(file[:4] == "http" or os.path.exists(file)):
-        DEBUG(f'*** Cannot find JSON file {file}')
+        logging.debug(f'*** Cannot find JSON file {file}')
         return {}
 
     URL = file[:4] == "http"
@@ -665,7 +660,7 @@ def load_json(file):
             with open(file, "r") as f:
                 json_dict = json.load(f)
     except:  # Exception here if file processing error on reading existing file
-        DEBUG(f'*** Error processing JSON file {file}')
+        logging.debug(f'*** Error processing JSON file {file}')
         return {}
 
     return json_dict
@@ -678,7 +673,7 @@ def save_json(file, json_dict):
         with open(file, 'w') as f:
             json.dump(json_dict, f)
     except:
-        DEBUG(f"*** Error writing json file: {file}")
+        logging.debug(f"*** Error writing json file: {file}")
 
 
 def load_wgse_version():
@@ -704,7 +699,7 @@ def strip_file_URI(path):
     Convert URI for local files into valid path to open. Do nothing if non file protocol (e.g. https://)
     """
     if path is None or len(path) < 9:
-        DEBUG(f"Path specification too short: {path}")
+        logging.debug(f"Path specification too short: {path}")
         return ""
 
     elif path[:8] == "file:///":    # implied localhost network name
@@ -715,7 +710,7 @@ def strip_file_URI(path):
 
     elif path[:7] == "file://":     # Specified a network name
         if path[8] == ':':          # Cannot have a disk specified after a specified network name on Windows
-            DEBUG(f"Invalid path specification: {path}")
+            logging.debug(f"Invalid path specification: {path}")
             return ""
         else:
             return nativeOS(path[5:])
@@ -777,9 +772,9 @@ def is_wgse_outdated():
         latest += [latest_json.get('cygwin64', {}).get('version', 0),
                    latest_json.get('bioinfo', {}).get('version', 0)]
 
-    DEBUG('Release version arrays: installer, program, reflib, tools [, cygwin64, bioinfo]')
-    DEBUG(f'Current: {current}')
-    DEBUG(f'Latest: {latest}')
+    logging.debug('Release version arrays: installer, program, reflib, tools [, cygwin64, bioinfo]')
+    logging.debug(f'Current: {current}')
+    logging.debug(f'Latest: {latest}')
 
     # Check and return status of current version versus latest release available
     return not all(cur >= lat for cur, lat in zip(current, latest))

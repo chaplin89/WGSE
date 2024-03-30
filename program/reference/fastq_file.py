@@ -1,8 +1,9 @@
+import logging
 import os
 import re
 from math import sqrt
 
-from utilities import DEBUG, nativeOS
+from utilities import nativeOS
 import settings as wgse
 
 
@@ -76,7 +77,7 @@ class FASTQFile:
             self.num_segments = int(fastq_stats.st_size / (char_cnt / (line_cnt / 4)))
             self.num_segments *= 2 if self.paired else 1
 
-        DEBUG(
+        logging.debug(
             f'FASTQ Stats: ID - "{self.seqid}, # segs - {self.num_segments:,d},'
             f' avg read length - {self.avg_read_length:,.0f}, read len stddev - {self.avg_read_stddev:,.0f}')
 

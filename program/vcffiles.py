@@ -25,11 +25,12 @@
     remnants from the original, single wgsextract.py file from v2.  So retained full copyright.
 """
 
+import logging
 import os       # for path, stat
 from math import sqrt       # for process_bam_body
 from vcf_parser import VCFParser
 
-from utilities import DEBUG, is_legal_path, nativeOS, universalOS, unquote, Error, Warning, wgse_message
+from utilities import  is_legal_path, nativeOS, universalOS, unquote, Error, Warning, wgse_message
 from commandprocessor import run_bash_script, simple_command
 from fastqfiles import determine_sequencer
 import settings as wgse
@@ -167,7 +168,7 @@ class VCFFile:
                        "Unk"
         self.SNTypeM = "MT" if "##contig=<ID=MT" in self.Header or "##contig=<ID=chrMT" in self.Header else "M"
         self.SNCount = self.Header.count('##contig=<ID=')   # Almost sufficient for an analysis model determination
-        DEBUG(f"VCF ID Type: {self.SNTypeC}, {self.SNTypeM}; VCF ID#:{self.SNCount}")
+        logging.debug(f"VCF ID Type: {self.SNTypeC}, {self.SNTypeM}; VCF ID#:{self.SNCount}")
         
         self.indexed = self.check_for_vcf_index()
 
@@ -220,8 +221,8 @@ class VCFFile:
             self.Build, self.RefMito = (19, "Yoruba")
         # Todo handling RSRS model -- look for spacers?
 
-        DEBUG(f"VCF Build: {self.Build:3d}")
-        DEBUG(f"VCF Ref Genome Mito: {self.RefMito}")
+        logging.debug(f"VCF Build: {self.Build:3d}")
+        logging.debug(f"VCF Ref Genome Mito: {self.RefMito}")
 
         # New form is based on Major / Class mechanism in Reference Genome study: https://bit.ly/34CO0vj
         #  Used to rely on SNCount.  But oddball, unrecognized ref genomes in BAMs may have something close set by user.
@@ -249,7 +250,7 @@ class VCFFile:
             elif "length=154259664" in self.Header:  # Must be plain CHM13 v0.9
                 self.Refgenome = self.RefgenomeNew = "T2Tv09"
             else:  # Think it is T2T / HPP build but cannot recognize Y or X length
-                DEBUG(f'Unrecognized T2T model; no matching X or Y length in BAM to known models.')
+                logging.debug(f'Unrecognized T2T model; no matching X or Y length in BAM to known models.')
         elif "##contig=<ID=NC_007605" in self.Header and self.SNCount in [85, 86]:
             # hs37 class have SN:NC007605 (EBV in Numeric naming) sans human_g1k / GRCh37.primary_assembly models
             # human_1kg model is 84 and one less SN than hs37.fa.gz; hs37d5 is 86 and one more than hs37 (hs37d5 decoy)
@@ -277,17 +278,17 @@ class VCFFile:
             self.Refgenome  = "hg" if self.SNTypeC == "Chr" else "GRCh"
             self.Refgenome += str(self.Build)   # Build already takes into account mito for 19/37 differentiation
             self.RefgenomeNew = self.Refgenome.replace("GRCh", "EBI") + ("g" if self.SNTypeC == "Chr" else "h")
-        DEBUG(f'Ref Genome: {self.Refgenome}, by New nomenclature: {self.RefgenomeNew}')
+        logging.debug(f'Ref Genome: {self.Refgenome}, by New nomenclature: {self.RefgenomeNew}')
 
         # We give up if still not set; simply ask the user
         if not self.Refgenome:  # not set yet: and (self.chrom_types["A"] > 1 or self.chrom_types["Y"] > 1):
             ask_refgenome(self, type="VCF", inBAM=True)  # Return value in self class pointer
-            DEBUG(f'Ref Genome (User): {self.Refgenome}')
+            logging.debug(f'Ref Genome (User): {self.Refgenome}')
             # todo ask user to send VCF header so we can get its signature for future runs
 
         self.Refgenome_qFN = wgse.reflib.get_refgenome_qFN(self.Refgenome)
         tempFN = unquote(self.Refgenome_qFN)
-        DEBUG(f'Ref Genome File: {tempFN}')
+        logging.debug(f'Ref Genome File: {tempFN}')
 
     def chrom_types_str(self):
         """

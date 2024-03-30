@@ -14,6 +14,9 @@
 # __version__ = "Dev ver5.nn (xx xxx 2023)"  Now captured dynamically from program/program.json
 # manual_url = "https://bit.ly/3nJqxqo"       # Version 5 manual (not publicly released yet) in program.json file also
 
+import logging
+
+
 major_version = 5
 __version__ = None      # Now read in and constructed from the program.json and release.json files
 manual_url = "https://wgsextract.github.io/"        # Default if not explicitely set in the program.json file
@@ -475,7 +478,7 @@ def init(interactive=False):
     # import multiprocessing
 
     # Local imports as this module / file is imported everywhere else; no .h/,c separation like in C
-    from utilities import DEBUG, universalOS, unquote, load_wgse_version
+    from utilities import  universalOS, unquote, load_wgse_version
     from utilities import TemporaryFiles, LanguageStrings, OutputDirectory, FontTypes       # subsystem classes
     from commandprocessor import is_command_available, simple_command
     from referencelibrary import ReferenceLibrary           # subsystem class
@@ -498,6 +501,8 @@ def init(interactive=False):
     global minimap2x_qFN, fastqcx_qFN, fastpx_qFN
     global java8_version, java17_version, python_version, samtools_version, cp_version
 
+    global genome_repository
+    
     gui = interactive
 
     #
@@ -541,22 +546,22 @@ def init(interactive=False):
     # Start global debug messages if requested (utilities.py); start after TemporaryFiles so it can clean directory
     if os.path.exists(debugset_oFN) and os.path.isfile(debugset_oFN):
         DEBUG_MODE = True
-        DEBUG("***** Debug Mode Turned On *****") if gui else ''
+        logging.debug("***** Debug Mode Turned On *****") if gui else ''
 
     # Special for Win10 patch to use WSL BWA as CygWIn64 is not running multiproc
     if os.path.exists(wslbwaset_oFN) and os.path.isfile(wslbwaset_oFN):
         wsl_bwa_patch = True
-        DEBUG("***** WSL BWA Patch Mode Turned On *****") if gui else ''
+        logging.debug("***** WSL BWA Patch Mode Turned On *****") if gui else ''
 
     # Need to set default locale; for decimal number (:n) formatting;
     #   override to POSIX when needed for consistent sort order (BAM header signature)
     # On Unix-based systems, sets language in OS messagebox dialogs also (Win10 does not allow altering)
-    DEBUG(f'Locale: {locale.getlocale()[0]}')
-    DEBUG(f'Default Locale: {locale.getdefaultlocale()[0]}')
+    logging.debug(f'Locale: {locale.getlocale()[0]}')
+    logging.debug(f'Default Locale: {locale.getdefaultlocale()[0]}')
     locale.setlocale(locale.LC_ALL, '')
 
     # Did not have DEBUG available before when set
-    DEBUG(f'OS: {os_plat}, CPU: {os_arch}, PID: {os_pid}, (Perf) Threads: {os_threads}, '
+    logging.debug(f'OS: {os_plat}, CPU: {os_arch}, PID: {os_pid}, (Perf) Threads: {os_threads}, '
           f'Total Mem: {(os_totmem/10**9):.1f} GB, Mem per thread: {os_mem}')
 
     #
@@ -569,6 +574,9 @@ def init(interactive=False):
     if prog_oFP[-1] != os_slash[0]:  # In case returns as root (/) or (C:\\); never should as buried in installation ...
         prog_oFP += os_slash  # Assure trailing os_slash
     prog_FP = universalOS(prog_oFP)
+
+    genome_repository = None
+    external = None
 
     # Some key static files we need to read in and use
     image_oFP = f"{prog_oFP}img{os_slash}dna.png"
@@ -587,7 +595,7 @@ def init(interactive=False):
     # Microarray templates now in reflib and set after initializing reference library; in case was moved in settings
 
     load_wgse_version()  # Create program version string and get user manual URL from json files (needs install_oFP)
-    DEBUG(f'WGS Extract: {__version__}')
+    logging.debug(f'WGS Extract: {__version__}')
 
     prefserver = "NIH"      # Default value; otherwise "EBI"
 
@@ -609,7 +617,7 @@ def init(interactive=False):
             java17x_FN = "java"       # Most installations, if installed, on the call path and so just mentioned
             java17_version = cp_version
         # Else we ignore the preinstalled version as not being one of the two we need
-        DEBUG(f'Java preinstalled Version: {java17_version}{java8_version}')    # Only one if any will be set
+        logging.debug(f'Java preinstalled Version: {java17_version}{java8_version}')    # Only one if any will be set
 
     # Set all the OS platform specific path / program names; see file variable naming spec at end; 'x' is executable
     if os_plat == "Windows":  # .exe extension works in .sh and requried in .bat commands for Windows
@@ -755,25 +763,25 @@ def init(interactive=False):
 
     if is_command_available(unquote(python3x_qFN), "--version", True):
         python_version = cp_version
-        DEBUG(f'Python Version: {python_version}')
+        logging.debug(f'Python Version: {python_version}')
     if is_command_available(unquote(samtoolsx_qFN), "--version", True):
         samtools_version = cp_version
-        DEBUG(f'Samtools Version: {samtools_version}')
+        logging.debug(f'Samtools Version: {samtools_version}')
 
     if java8x_FN:
         # java8args = f'-Xmx2g --module-path={jartools_FP} -jar'
         java8args = f'-Xmx1500m -jar'        # Not sophisticated enough yet to have modules in jartools
         java8x_FNp = f'{java8x_FN} {java8args}'
-        DEBUG(f'Java 8 version: {java8_version}')
+        logging.debug(f'Java 8 version: {java8_version}')
     else:
-        DEBUG(f'*** ERROR: No Java 8 installation found')
+        logging.debug(f'*** ERROR: No Java 8 installation found')
     if java17x_FN:
         # java17args = f'-Xmx2g --module-path={jartools_FP} -jar'
         java17args = f'-Xmx1500m -jar'        # Not sophisticated enough yet to have modules in jartools
         java17x_FNp = f'{java17x_FN} {java17args}'
-        DEBUG(f'Java 11+ version: {java17_version}')
+        logging.debug(f'Java 11+ version: {java17_version}')
     else:
-        DEBUG(f'*** ERROR: No Java 11+ installation found')
+        logging.debug(f'*** ERROR: No Java 11+ installation found')
 
     #
     # Start up key subsystems:  Language Translation, Temporary Files directory, Reference Library directory
@@ -800,10 +808,6 @@ def init(interactive=False):
     BAM = None      # No default BAMFile instance; keep unset until a BAM is loaded by user or from settings restore
     VCFs = None     # No default VCF files defined either
 
-    # lang still not set yet; so cannot do translation
-    # if top_level:
-    #     print(lang.i18n["ExplainWhyTerminalWinIsOpen"])
-
     print(f'--- Restore saved settings')
     load_settings(top_level)    # Grab saved setting from users home directory; finish subsystem setup
 
@@ -826,7 +830,7 @@ def load_settings(top_level=False):
     """
     import os
     import json
-    from utilities import DEBUG, wgse_message, nativeOS
+    from utilities import  wgse_message, nativeOS
     from bamfiles import BAMFile, BAMContentError, BAMContentErrorFile, BAMContentWarning
     from mainwindow import update_action_buttons
 
@@ -839,7 +843,7 @@ def load_settings(top_level=False):
             with open(wgseset_oFN, "r") as f:
                 settings_to_restore = json.load(f)
         except:  # Exception here if file processing error on existing file; so delete
-            DEBUG(f'*** Error processing settings file; deleting')
+            logging.debug(f'*** Error processing settings file; deleting')
             os.remove(wgseset_oFN)
             return
 
@@ -847,15 +851,15 @@ def load_settings(top_level=False):
     # We have avoided setting up each subsystem until this call as a stored setting may override default
     #  (or in the case of language, the stored setting or then pop-up to user selects the language)
 
-    DEBUG(f'Settings to restore: {settings_to_restore}')
+    logging.debug(f'Settings to restore: {settings_to_restore}')
 
     if not lang:
-        DEBUG("*** FATAL ERROR: Language subsystem not available!")
+        logging.debug("*** FATAL ERROR: Language subsystem not available!")
         raise
     lang.change_language(settings_to_restore.get('lang.language', lang.language))
 
     if not tempf:
-        DEBUG("*** FATAL ERROR: Temporary Files subsystem not available!")
+        logging.debug("*** FATAL ERROR: Temporary Files subsystem not available!")
         raise
     tempf.change(settings_to_restore.get('tempf.save_FP', tempf.default_FP))
 
@@ -866,7 +870,7 @@ def load_settings(top_level=False):
         raise
 
     if not reflib:
-        DEBUG("*** FATAL ERROR: Reference Library subsystem not available!")
+        logging.debug("*** FATAL ERROR: Reference Library subsystem not available!")
         raise
     reflib.change(settings_to_restore.get('reflib.FP', reflib.FP))
 
@@ -877,13 +881,13 @@ def load_settings(top_level=False):
         raise
 
     if not outdir:
-        DEBUG("*** FATAL ERROR: Output Directory subsystem not available!")
+        logging.debug("*** FATAL ERROR: Output Directory subsystem not available!")
         raise
     outdir.change(settings_to_restore.get('outdir.FP', outdir.FP), True)    # If saved, must have been user_set
 
     if top_level:
         if not fonts:
-            DEBUG("*** FATAL ERROR: Fonts Subsytem not available!")
+            logging.debug("*** FATAL ERROR: Fonts Subsytem not available!")
             raise
         fonts.change(newface=settings_to_restore.get('fonts.face', fonts.face),
                      newbasept=settings_to_restore.get('fonts.basept', fonts.basept))
@@ -906,16 +910,16 @@ def load_settings(top_level=False):
     os_mem = set_mem_per_thread_millions(os_totmem, os_threads)     # Note, a string useable in a command line
 
     if updated:
-        DEBUG(f'Updated: Procs: {os_threads}, total Mem: {(os_totmem/10**9):.1f} GB, mem per thread: {os_mem}')
+        logging.debug(f'Updated: Procs: {os_threads}, total Mem: {(os_totmem/10**9):.1f} GB, mem per thread: {os_mem}')
 
     # Restore saved BAM / CRAM file IF at the top_level (only); otherwise already there and no nead to re-process
     if top_level:
         saved_BAM_FN = settings_to_restore.get('BAM.file_FN', "")
         if saved_BAM_FN:
             try:
-                DEBUG(f'Attempting to restore saved BAM file: {saved_BAM_FN}')
+                logging.debug(f'Attempting to restore saved BAM file: {saved_BAM_FN}')
                 BAM = BAMFile(saved_BAM_FN)
-                DEBUG(f'Success restoring saved BAM file: {saved_BAM_FN}')
+                logging.debug(f'Success restoring saved BAM file: {saved_BAM_FN}')
             except BAMContentErrorFile as err:
                 BAM = None      # Ignore errors from trying restore; simply ignore setting
             except BAMContentError as err:
@@ -930,7 +934,7 @@ def load_settings(top_level=False):
 
     # Todo restore / save VCF's? FASTQs? Full BAM Stats?
 
-    DEBUG(f'Finished restoring saved settings.')
+    logging.debug(f'Finished restoring saved settings.')
 
 
 def save_settings():
@@ -939,12 +943,11 @@ def save_settings():
     DEBUG_MODE, language, output directory, reference library directory, temporary directory, wsl_bwa_patch
     """
     import json
-    from utilities import DEBUG
 
     global outdir, BAM, reflib, tempf, lang, fonts
     global wgseset_oFN, prefserver, os_threads, os_totmem
 
-    # DEBUG(f'WGSE JSON Setting file: {wgseset_oFN}')
+    # logging.debug(f'WGSE JSON Setting file: {wgseset_oFN}')
     settings_to_save = {}
 
     # Only save value if set and not default (ones with default have "set" variable)
@@ -971,7 +974,7 @@ def save_settings():
         settings_to_save['BAM.file_FN'] = BAM.file_FN
     # Todo restore / save VCF's?
     # DEBUG_MODE is not a saved setting; as is in a special file checked and read at program startup earlier
-    # DEBUG(f'WGSE JSON Settings to save: {settings_to_save}')
+    # logging.debug(f'WGSE JSON Settings to save: {settings_to_save}')
 
     # Do not save if no values set; language should always be set though (and newer always set values)
     if settings_to_save:
@@ -979,41 +982,8 @@ def save_settings():
             with open(wgseset_oFN, 'w') as f:
                 json.dump(settings_to_save, f)
         except:
-            DEBUG("*** Error writing settings file; skipping.")
+            logging.debug("*** Error writing settings file; skipping.")
             pass    # We try. If cannot write file then just move on silently
-
-
-"""      ******************  FILE VARIABLE NOMENCLATURE  ***********************
- We do a lot of file name construction and manipulation. So we need clear conventions for naming the variables.
- File Variable Naming Acronyms (_suffix):
-  FN    -- fully qualified File Name (path, base, suffix; i.e FPBS) (absolute or relative) (DEFAULT is uFN)
-  FP    -- File Path name only (including trailing slash; head in split + /)
-  FB    -- File Base name only (NO path, NO suffix) (simple root; splitext[0].split[1])
-  FS    -- File Suffix only (including dot prefix; also called extension in splitext)
-  FBS   -- File Base and Suffix (traditional file name; tail in split, basename())
-  FPB   -- File Path and Base name (no suffix) (called root in splitext)
-  qFN   -- Quoted fully qualified File Name (would never quote anything else) (with possible spaces in name)
-  oFN   -- Native OS (slash) File Name (what you pass to open(); also oFP if directory)
-  wFN   -- Windows (back slash) path File Name (or FP, etc)
-  uFN   -- Unix/Universal (forward slash) path File Name (or FP, etc) (DEFAULT, if not specified)
-            uFN is DEFAULT for ALL OS's in BASH and Win10 PowerShell; C:/users/name/.wgselang is OK
-  x_qFN -- indicates actual executable program file name; usually always quoted but not in Native OS format
-
-  In our terminology here:
-   os.path.split elements:    [ oFP , FBS ]
-   os.path.splitext elements: [ oFPB , FS ]
-   os.path.basename returns FBS (same as split[1])
-  But remember os.path is OS specific.  Pathlib is the OS independent representation.
-
-  As most of the manipulation is done for BASH scripts; the default stored is Unix paths (forward slash)
-  Only when needed in a native / root OS form for Windows, will it be converted (i.e. to Windows back slash)
-  wgse.os_slash will contain the appropriate slash for file paths in the current OS
-  outFPB is the historic outfws + '/' (fws was file withOUT suffix)
-
-  Python "open" command needs oFN without quotes (native OS, uses appropriate slash).
-  Bash scripts need qFN (in Unix slash format); even on Windows machines when path includes drive letter format.
-  Python "process" command is a list of strings so no quoting of individual strings is necessary; not shell parsed.
-"""
 
 # Todo
 #  Beginning setup here for a Check-Generate/Gather subsystem to allow button commands to simply specify what they need.
@@ -1022,44 +992,3 @@ def save_settings():
 #  about the parameters used to get from a to b. Also allows test vendor supplied files (or previously user generated
 #  ones) to be looked for and utilized directly.  To be moved up into the main section once settled and implemented.
 #  Thinking of using bit masks for efficiency over dictionaries.  But may need more parameters attached so maybe not?
-'''
-# Mask Categories for Required Files
-mask_UserFiles
-mask_RefGenome
-mask_Liftover
-mask_Microarray
-mask_CombinedKit
-
-# Masks for Required User Input Files
-mask_FASTQ              = 0x0001
-mask_FASTQ_PE           = 0x0002
-mask_BAM                = 0x0010
-mask_BAM_Sorted         = 0x0020
-mask_BAM_Index          = 0x0040
-mask_BAM_Unaligned      = 0x0080
-mask_CRAM               = 0x0100
-mask_CRAN_Index         = 0x0200
-mask_VCF_RAW
-mask_VCF_RAW_Index
-mask_VCF_Called
-mask_VCF_Called_Index
-mask_CombinedKit
-
-# Masks for Required Microarray Template files
-mask_23andMe_API
-mask_23andMe_v2
-mask_23andMe_v3
-mask_23andMe_v4
-mask_23andMe_v5
-mask_Ancestry_v1
-mask_Ancestry_v2
-mask_FTDNA_v1
-mask_FTDNA_v2
-mask_FTDNA_v3
-mask_LivDNA_v1
-mask_LivDNA_v2
-mask_MyHeri_v1
-mask_MyHeri_v2
-mask_NGG_v2
-mask_NGG_v2NG
-'''

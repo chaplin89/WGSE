@@ -42,7 +42,7 @@ from PIL import ImageTk, Image      # , ImageGrab -- not available in Linux
 import pyscreenshot as ImageGrab    # Is available in Linux (whereas the original PIL / Pillow is not)
 
 # Local modules from WGSE
-from utilities import DEBUG, nativeOS, universalOS, unquote, wgse_message, offset
+from utilities import nativeOS, universalOS, unquote, wgse_message, offset
 from utilities import is_legal_path, check_exists, fastq_base
 from utilities import is_wgse_outdated, update_release_track, load_wgse_version
 from utilities import OutputDirectory, FontTypes
@@ -51,6 +51,7 @@ from commandprocessor import run_bash_script, update_release
 from bamfiles import BAMFile, BAMContentError, BAMContentErrorFile, BAMContentWarning
 from microwindow import button_microarray_window, _button_AllSNPs
 from fastqfiles import process_FASTQ
+import logging
 
 import settings as wgse
 font = {}
@@ -199,10 +200,10 @@ def ask_vcfs_to_process():
                                           filetypes=[(wgse.lang.i18n['FrameVCFFiles'], files), ])
 
     if not vcf_FNs or len(vcf_FNs) == 0:      # User must have cancelled; simply return as nothing to do
-        DEBUG("VCF File Selection Cancelled ...")   # Do nothing
+        logging.debug("VCF File Selection Cancelled ...")   # Do nothing
         return ""        # Does not really matter
 
-    DEBUG(f"Selected VCFs (request): {vcf_FNs}")
+    logging.debug(f"Selected VCFs (request): {vcf_FNs}")
     VCFs = {}
     for ofile in vcf_FNs:
         if not (ofile and ofile.endswith(required_ext) and os.path.exists(ofile)):
@@ -228,7 +229,7 @@ def ask_fastq_to_align():
                     filetypes=[(wgse.lang.i18n['FrameFASTQFiles'], files), ])
 
     if not fastq_FNs or len(fastq_FNs) == 0:      # User must have cancelled; simply return as nothing to do
-        DEBUG("FASTQ File Selection Cancelled ...")   # Do nothing
+        logging.debug("FASTQ File Selection Cancelled ...")   # Do nothing
         return ""        # Does not really matter
 
     for file in fastq_FNs:
@@ -236,7 +237,7 @@ def ask_fastq_to_align():
             wgse_message("error", 'FastqFileBadTitle', True, wgse.lang.i18n['FastqFileBad'].replace("{{FASTQ}}", file))
             return ""
 
-    DEBUG(f"Selected FASTQs (request): {fastq_FNs}")
+    logging.debug(f"Selected FASTQs (request): {fastq_FNs}")
 
     # Set default output directory (if not user set yet) to the location the user desires these FASTQs
     wgse.outdir.new_default(os.path.dirname(fastq_FNs[0]))
@@ -628,7 +629,7 @@ def button_select_BAM_file():
     if BAM_FN:  # User selected new file name; so process it
         set_BAM_file(BAM_FN)
     else:       # User must have cancelled; simply return as nothing to do
-        DEBUG("BAM/CRAM/SAM File Selection Cancelled ...")   # Do nothing; do NOT unselect current one
+        logging.debug("BAM/CRAM/SAM File Selection Cancelled ...")   # Do nothing; do NOT unselect current one
     mainwindow_resume()
 
 
@@ -651,7 +652,7 @@ def set_BAM_file(BAM_FN):
         checking and setup before doing actual replacement.
     """
     # Todo change to wgse.BAM.change(); but what if no BAM ever set yet? Do init first then call change?
-    DEBUG(f"Set BAM/CRAM/SAM (request): {BAM_FN}")
+    logging.debug(f"Set BAM/CRAM/SAM (request): {BAM_FN}")
 
     # Empty BAM file name; error message and return as nothing to do
     if not BAM_FN:
@@ -730,7 +731,7 @@ def button_stats_BAM():
         return
 
     if wgse.BAM.Stats is False:
-        DEBUG("*** Failed to create the idxstats file.")
+        logging.debug("*** Failed to create the idxstats file.")
         return  # This should never have occurred
 
     # So do not force now (as if a button hit directly). Instead, determine if there is a file from a previous run and
@@ -1191,7 +1192,7 @@ def _adjust_mem_threads(file_size, file_type, sort_type):
     Remember: file_size and os_totmem are in bytes; os_mem is in millions of bytes and a string
     """
 
-    DEBUG(f'In Adjust_Mem for Sort with File Size: {file_size // 10 ** 9} GB, {file_type}, "{sort_type}" Sort')
+    logging.debug(f'In Adjust_Mem for Sort with File Size: {file_size // 10 ** 9} GB, {file_type}, "{sort_type}" Sort')
 
     # Constant values / multipliers to help adjust values
     temp_mult = 2.3         # If memory per thread is x, then actual temp file size per thread is x/2.3
@@ -1233,12 +1234,12 @@ def _adjust_mem_threads(file_size, file_type, sort_type):
 
         os_mem = str((min_mpt // 10 ** 8) * 100 if min_mpt > 10 ** 8 else (min_mpt // 10 ** 6)) + 'M'
 
-        DEBUG(f'*** Adjust "{sort_type}" sort command on MacOS to use memory per thread: {wgse.os_mem} to {os_mem}, '
+        logging.debug(f'*** Adjust "{sort_type}" sort command on MacOS to use memory per thread: {wgse.os_mem} to {os_mem}, '
               f'(Perf) Threads: {wgse.os_threads} to {os_threads}')
         return os_mem, os_threads
 
     else:       # No adjustment necessary; use values set by platform at program startup or override by user earlier
-        DEBUG(f'*** No adjustment. Using memory per thread: {wgse.os_mem} and (Perf) Threads: {wgse.os_threads}')
+        logging.debug(f'*** No adjustment. Using memory per thread: {wgse.os_mem} and (Perf) Threads: {wgse.os_threads}')
         return wgse.os_mem, wgse.os_threads
 
 
@@ -1333,7 +1334,7 @@ def button_CRAM_to_BAM():
     CRAM_qFN = wgse.BAM.file_qFN
     BAM_FN = f'{wgse.outdir.FPB}.bam'
     BAM_qFN = f'"{BAM_FN}"'
-    DEBUG(f"Output BAM (final): {BAM_FN}")
+    logging.debug(f"Output BAM (final): {BAM_FN}")
 
     samtools = wgse.samtoolsx_qFN       # Know we are using 64 bit samtools 1.10; 64 bit required for CRAM decode
     commands = (
@@ -1362,7 +1363,7 @@ def button_BAM_to_CRAM():
     BAM_qFN = f'"{wgse.BAM.file_FN}"'
     CRAM_FN = f'{wgse.outdir.FPB}.cram'
     CRAM_qFN = f'"{CRAM_FN}"'
-    DEBUG(f"Output CRAM (final): {CRAM_FN}")
+    logging.debug(f"Output CRAM (final): {CRAM_FN}")
 
     samtools = wgse.samtoolsx_qFN  # Know we are using 64 bit samtools 1.10; 64 bit required for CRAM encode
     commands = (
@@ -1442,7 +1443,7 @@ def enough_free_space_align(fastq_size, newBAM_FS="BAM", fastq_exist=False, repo
     ostr = f'{outneed:,} GB'
     tstr = f'{tempneed:,} GB'
 
-    DEBUG(f"Alignment Free Disk Check: Temp and Outdir same? {samedisk}; \n"
+    logging.debug(f"Alignment Free Disk Check: Temp and Outdir same? {samedisk}; \n"
           f"\t\ttemp dir: {tfree:,} GB avail vs {tstr} needed; \n"
           f"\t\tout dir: {ofree:,} GB avail vs {ostr} needed")
 
@@ -1745,7 +1746,7 @@ def button_align_BAM(inRealign=False):
         paired = False
         f1_FN = f2_FN = ""
 
-    DEBUG(f'FASTQ(s) to align: paired? {paired}, {os.path.basename(f1_FN)}, {os.path.basename(f2_FN)}')
+    logging.debug(f'FASTQ(s) to align: paired? {paired}, {os.path.basename(f1_FN)}, {os.path.basename(f2_FN)}')
 
     # Cheat and use BAM stats for needed FASTQ stats (if available)
     if inRealign and saveBAM and saveBAM.Stats:
@@ -1758,7 +1759,7 @@ def button_align_BAM(inRealign=False):
         sequencer, numsegs_flt, read_length = process_FASTQ(f1_FN, paired)
 
     numsegs = int(round(numsegs_flt, 0))
-    DEBUG(f'Sequencer: {sequencer}, number of segments: {numsegs/10**6} M, read length: {read_length}')
+    logging.debug(f'Sequencer: {sequencer}, number of segments: {numsegs/10**6} M, read length: {read_length}')
 
     # Setup quoted FASTQ files; note special universal version for WSL needs if using WSL BWA
     f1_oFN = nativeOS(f1_FN)
@@ -1786,7 +1787,7 @@ def button_align_BAM(inRealign=False):
         return _align_exit()
 
     refgen_oFN = nativeOS(unquote(refgen_qFN))  # Remove quotes and change to native OS
-    DEBUG(f'Reference Genome: {new_refgenome}, File: {os.path.basename(refgen_oFN)}')
+    logging.debug(f'Reference Genome: {new_refgenome}, File: {os.path.basename(refgen_oFN)}')
 
     aligner = "minimap2" if "Nanopore" in sequencer else \
               "hisat2"   if "GRCh"     in new_refgenome else \
@@ -1803,7 +1804,7 @@ def button_align_BAM(inRealign=False):
     newBAM_FPB = f'{wgse.outdir.FP}{newBAM_FB}'
     newBAM_FN = f'{wgse.outdir.FP}{newBAM_FBS}'
     newBAM_qFN = f'"{newBAM_FN}"'
-    DEBUG(f'New BAM File Basename: {newBAM_FB}, extension: {newBAM_FS}')
+    logging.debug(f'New BAM File Basename: {newBAM_FB}, extension: {newBAM_FS}')
 
     # Define a trueBAM for alignment output in case newBAM is asking for a CRAM
     trueBAM_FN = newBAM_FN.replace(".cram", ".bam") if newBAM_FS == ".cram" else newBAM_FN
@@ -1871,7 +1872,7 @@ def button_align_BAM(inRealign=False):
     # Check for Alignment Index files -- reuse or generate if missing
     if aligner == "bwa" and os.path.isfile(refgen_oFN + ".bwt") and \
        os.path.getmtime(refgen_oFN + ".bwt") > os.path.getmtime(refgen_oFN):
-        DEBUG(f'Using previous BWA Indices for RefGenome: {refgen_qFN}')
+        logging.debug(f'Using previous BWA Indices for RefGenome: {refgen_qFN}')
 
     elif aligner == "bwa":     # Generate BWA index
         # Index the Reference Genome (note: does not work if EBI Reference genome)
@@ -1894,7 +1895,7 @@ def button_align_BAM(inRealign=False):
     if os.path.isfile(outd_rawalign_oFN) and \
        os.path.getmtime(outd_rawalign_oFN) > os.path.getmtime(f1_oFN) and \
        0.8 < os.path.getsize(outd_rawalign_oFN) / fastq_size < 1.2:
-        DEBUG(f'Found previous RAW alignment to reuse: {outd_rawalign_qFN}')  # Not likely but worth a try
+        logging.debug(f'Found previous RAW alignment to reuse: {outd_rawalign_qFN}')  # Not likely but worth a try
     else:
         # Run the alignment command; compress the output simply because it is so large otherwise
         if aligner == "bwa":
@@ -1930,7 +1931,7 @@ def button_align_BAM(inRealign=False):
     if os.path.isfile(outd_sorted_oFN) and os.path.isfile(outd_rawalign_oFN) and \
        os.path.getmtime(outd_sorted_oFN) > os.path.getmtime(outd_rawalign_oFN) and \
        0.5 < os.path.getsize(outd_rawalign_oFN) / os.path.getsize(outd_sorted_oFN) < 2:
-        DEBUG(f'Found previous fixmate and sorted BAM to reuse: {outd_sorted_oFN}')
+        logging.debug(f'Found previous fixmate and sorted BAM to reuse: {outd_sorted_oFN}')
 
     elif aligner == "bwa":        # Cleanup built into minimap alignment stage
         # f'{samtools} view -uh --no-PG {outd_rawalign_qFN} | '     # Why did we have the view before Fixmate?
@@ -1951,7 +1952,7 @@ def button_align_BAM(inRealign=False):
     if os.path.isfile(trueBAM_oFN) and os.path.isfile(outd_sorted_oFN) and \
        os.path.getmtime(trueBAM_oFN) > os.path.getmtime(outd_sorted_oFN) and \
        0.5 < (os.path.getsize(trueBAM_oFN) / os.path.getsize(outd_sorted_oFN)) < 1.2:
-        DEBUG(f'Found previous sorted, final BAM to reuse: {trueBAM_FN}')
+        logging.debug(f'Found previous sorted, final BAM to reuse: {trueBAM_FN}')
 
     elif aligner == "bwa":        # Cleanup built into Long Read FASTQ files turned into BAMs
         # Check if samtools has read-coord option and sequencer has names that can be parsed for optical duplicates
@@ -2306,7 +2307,7 @@ def button_select_outdir():
     if new_FP:      # Process user selection
         set_outdir(new_FP, user_set=True)
     else:
-        DEBUG(f"Output Path not set (cancelled)")
+        logging.debug(f"Output Path not set (cancelled)")
     mainwindow_resume()
 
 
@@ -2332,7 +2333,7 @@ def set_outdir(new_FP, user_set=False):
         Called here from button_select_outdir, from standalone microarray module and the set_BAM_file
     """
     if not wgse.outdir or not new_FP or len(new_FP) < 3:
-        DEBUG("*** Internal Error: Tried to set outdir before class setup, with an empty dir spec, or an invalid dir.")
+        logging.debug("*** Internal Error: Tried to set outdir before class setup, with an empty dir spec, or an invalid dir.")
         return
 
     if user_set:
@@ -2814,7 +2815,7 @@ def result_window_yHaplo(yhg, yhgs, terminal_snps):
     findHgOtherTreesFrame = LabelFrame(yHaploResWindow, text=wgse.lang.i18n['FrameHgOtherTrees'], font=font['16b'])
     findHgOtherTreesFrame.grid(row=1, column=0, columnspan=2, padx=10, pady=5, sticky=NSEW)
 
-    DEBUG(f"Wraplengths: window:{wraplength1}, 2/3 frame:{wraplength2}")
+    logging.debug(f"Wraplengths: window:{wraplength1}, 2/3 frame:{wraplength2}")
     crow = 0
     Label(findHgOtherTreesFrame, text=wgse.lang.i18n['findHgISOGGDescription'], justify=LEFT, wraplength=wraplength1,
           font=font['14']).grid(row=crow, column=0, padx=5, pady=2); crow += 1
@@ -3134,7 +3135,7 @@ def _button_unsort_BAM():
 
         set_BAM_file(unquote(unsortbam))     # Replace current BAM and garbage collect old
     else:
-        DEBUG("***Internal ERROR: called unsort_BAM with unsort'ed BAM. How was button available?")
+        logging.debug("***Internal ERROR: called unsort_BAM with unsort'ed BAM. How was button available?")
 
     mainwindow_resume()
 
@@ -3155,7 +3156,7 @@ def _button_fontsize():
     elif fontsize == wgse.fonts.basept:
         return          # No change; nothing to do
 
-    DEBUG(f"Base Font Point Size requested: {fontsize}, current: {wgse.fonts.basept}, "
+    logging.debug(f"Base Font Point Size requested: {fontsize}, current: {wgse.fonts.basept}, "
           f"platform default: {wgse.fonts.default_basept} pts")
     wgse.fonts.change(newbasept=fontsize)                   # New user setting; 0 to clear. Changes wgse.fonts.basept
 
@@ -3243,7 +3244,7 @@ def _button_maxmem_setting():
                      wgse.lang.i18n['MaxMemOutOfRange'].replace('{{maxmem}}', wgse.os_totmem))
         return
 
-    DEBUG(f"Max Tot Mem requested: {maxmem}, saved: {wgse.os_totmem_saved}, "
+    logging.debug(f"Max Tot Mem requested: {maxmem}, saved: {wgse.os_totmem_saved}, "
           f"platform avail: {wgse.os_totmem_proc//10**9}, previously set: {wgse.os_totmem//10**9} GB")
 
     # If changed user setting, save new value and configure button value
@@ -3258,7 +3259,7 @@ def _button_maxmem_setting():
     wgse.os_totmem = maxmem * 10**9 if override else wgse.os_totmem_proc    # Save new value
     wgse.os_mem = wgse.set_mem_per_thread_millions(wgse.os_totmem, wgse.os_threads)     # Note: a string
 
-    DEBUG(f'Updated settings: total Mem: {wgse.os_totmem//10**9} GB, mem per thread: {wgse.os_mem}B')
+    logging.debug(f'Updated settings: total Mem: {wgse.os_totmem//10**9} GB, mem per thread: {wgse.os_mem}B')
 
 
 def _button_maxthread_setting():
@@ -3275,7 +3276,7 @@ def _button_maxthread_setting():
                      wgse.lang.i18n['MaxThreadOutOfRange'].replace('{{maxthread}}', wgse.os_threads))
         return
 
-    DEBUG(f"Max Threads requested: {maxthread}, saved: {wgse.os_threads_saved}, "
+    logging.debug(f"Max Threads requested: {maxthread}, saved: {wgse.os_threads_saved}, "
           f"platform avail: {wgse.os_threads_proc}, previously set: {wgse.os_threads}")
 
     # If changed user setting, save new value and configure button value
@@ -3290,7 +3291,7 @@ def _button_maxthread_setting():
     wgse.os_threads = maxthread if override else wgse.os_threads_proc           # Save new value
     wgse.os_mem = wgse.set_mem_per_thread_millions(wgse.os_totmem, wgse.os_threads)     # Note: a string
 
-    DEBUG(f'Updated settings: Threads: {wgse.os_threads}, mem per thread: {wgse.os_mem}B')
+    logging.debug(f'Updated settings: Threads: {wgse.os_threads}, mem per thread: {wgse.os_mem}B')
 
 
 def _button_SubsetBAM():
@@ -3300,7 +3301,7 @@ def _button_SubsetBAM():
     """
     subset = simpledialog.askfloat(wgse.lang.i18n['SubsetBAMAskRangeTitle'], wgse.lang.i18n['SubsetBAMAskRangeContent'],
                                    parent=wgse.window)
-    DEBUG(f"Subset: {subset}")
+    logging.debug(f"Subset: {subset}")
     if not (subset and 0.0 <= subset <= 100.0):
         wgse_message("error", 'ValueOutOfRangeTitle', False, 'SubsetOutOfRange')
         return
@@ -3318,7 +3319,7 @@ def _button_SubsetBAM():
     BAM_qFN = wgse.BAM.file_qFN
     SUB_FN = f'{wgse.outdir.FPB}_{int(subset)}%{ext}'   # Percent in name seems legal everywhere; albeit rare in use
     SUB_qFN = f'"{SUB_FN}"'
-    DEBUG(f"Output Subset BAM (final): {SUB_FN}")
+    logging.debug(f"Output Subset BAM (final): {SUB_FN}")
 
     subset /= 100.0
     commands  = (
@@ -3382,7 +3383,7 @@ def _button_changeTrack_handler(event):
         load_wgse_version()  # Create new program version string; updates wgse.track also
         releaseTrackButton.configure(text=i18n_track)
 
-        DEBUG(f'WGS Extract: {wgse.__version__}')
+        logging.debug(f'WGS Extract: {wgse.__version__}')
         version_fg = 'red' if is_wgse_outdated() else wgse.deflab_fg
         versionLabel.configure(text=wgse.__version__, fg=version_fg)
 
@@ -3394,13 +3395,13 @@ def button_debug_mode_toggle():
     from pathlib import Path
 
     if wgse.DEBUG_MODE:
-        DEBUG("***** DEBUG_MODE off *****")
+        logging.debug("***** DEBUG_MODE off *****")
         os.remove(wgse.debugset_oFN)
         wgse.DEBUG_MODE = False
     else:
         wgse.DEBUG_MODE = True
         Path(wgse.debugset_oFN).touch()
-        DEBUG("***** DEBUG_MODE on  *****")
+        logging.debug("***** DEBUG_MODE on  *****")
 
     mainwindow_reset()
     mainwindow_resume()
@@ -3448,7 +3449,7 @@ def button_set_language():
     # Font subsystem may not be setup yet; so have reasonable default
     font = wgse.fonts.table if wgse and wgse.fonts else {'14': ("Times New Roman", 14)}
 
-    DEBUG("Displaying Language Selection Pop-up")
+    logging.debug("Displaying Language Selection Pop-up")
     if wgse.window:             # Withdraw main window as will destroy and create new one with new language
         wgse.window.withdraw()
         selectLanguageWindow = Toplevel(wgse.window)
@@ -3495,7 +3496,7 @@ def button_set_referencelibrary():
     reflib_FP = filedialog.askdirectory(parent=wgse.window, title=wgse.lang.i18n['SelectReferenceLibrary'],
                                         initialdir=initialdir)  # Returns Unix/Universal, and no trailing slash
     if not reflib_FP:      # If still not set ...
-        DEBUG(f"New Reference Library Directory not set (cancelled)")
+        logging.debug(f"New Reference Library Directory not set (cancelled)")
     else:
         reflib_FP += '/' if reflib_FP[-1] != '/' else ''    # Note: not NativeOS so forward slash always
 
@@ -3521,7 +3522,7 @@ def button_set_tempdir():
                                       initialdir=initialdir)  # Returns Unix/Universal, and no trailing slash
     if not temp_FP:  # If still not set ...
         # User likely hit exit or cancel; simply return (do not clear old value)
-        DEBUG(f"New Temporary File Directory not set (cancelled)")
+        logging.debug(f"New Temporary File Directory not set (cancelled)")
     else:
         # Assure trailing slash
         temp_FP += '/' if temp_FP[-1] != '/' else ''    # Note: universalOS so forward slash always
@@ -3578,7 +3579,7 @@ def mainwindow_init():
 
 def mainwindow_reset():
     if wgse and wgse.window and wgse.dnaImage:  # If main window setup, then recreate with new language and DEBUG_MODE
-        DEBUG('Resetting / redrawing main window')
+        logging.debug('Resetting / redrawing main window')
         wgse.dnaImage = None  # Only way we know mainwindow_setup was run
         wgse.window.destroy()  # Kill current mainwindow
         top_level = False
