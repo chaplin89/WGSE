@@ -24,8 +24,11 @@
 
 import os                   # for path, stat
 # import re                   # For help shortening BAM base descriptions
-from math import sqrt       # for process_bam_body
+from math import sqrt
+from pathlib import Path
+import subprocess
 
+from reference.external import External
 from utilities import is_legal_path, nativeOS, universalOS, unquote, Error, wgse_message, check_exists
 from commandprocessor import run_bash_script, simple_command
 from fastqfiles import determine_sequencer
@@ -150,7 +153,7 @@ class BAMFile:
         self.stats_bin    = []  # For WGS Bin Coverage table
         self.stats_binwes = []  # For WES Bin Coverage table
         self.chrom_types = {"A": 0, "X": 0, "Y": 0, "M": 0, "*": 0, "O": 0}  # Stores num of read segments for each
-
+        self.external = External()
         self._setup_BAM(BAM_FN)
 
     def _setup_BAM(self, BAM_FN):
@@ -305,7 +308,6 @@ class BAMFile:
                                           self.Refgenome)  # Will override and not print error when Refgenome set
         elif self.file_type == "CRAM":
             raise BAMContentError('errCRAMCannotDetermineReference')
-        cram_opt = f'-T {self.Refgenome_qFN}' if self.file_type == "CRAM" else ""
 
         # Re-entrant code allows two runs of sampling from the BAM; numsamp then lonsamp additional
         skip = 40000            # Skip first values; often chromo start with repetitive / low quality reads
@@ -327,9 +329,18 @@ class BAMFile:
         bulk =            numsamp if first_time else lonsamp            # 2nd round starts with first run values
         title = 'ButtonBAMStats2' if first_time else 'ButtonBAMStatsLong'
 
-        commands = f'{samtools} view {cram_opt} {bamfile} | {tail} +{skip} | {head} -{bulk} > {flagfile_qFN} \n'
-        run_bash_script(title, commands, parent=wgse.window)
-
+        cram_opt = ""
+        if self.file_type == "CRAM":
+            cram_opt = ["-T",self.Refgenome_qFN]
+        
+        view_out = self.external.samtools(["view", *cram_opt, "-@", "64" ,Path(bamfile.replace("\"",""))], stdout=subprocess.PIPE)
+        tail_out = self.external.tail([f"+{skip}"], stdin=view_out.stdout, stdout=subprocess.PIPE)
+        with open(Path(flagfile_qFN.replace("\"","")), "wb") as f:
+            head_out = self.external.head([f"-{bulk}"], stdin=tail_out.stdout, stdout=f)
+            head_out.wait()
+            tail_out.terminate()
+            view_out.terminate()
+        
         flagfile_oFN = nativeOS(unquote(flagfile_qFN))
         if not os.path.exists(flagfile_oFN):
             raise BAMContentErrorFile('errBAMNoFlagsFile', flagfile_oFN)

@@ -3,7 +3,18 @@ from pathlib import Path
 import pathlib
 import subprocess
 import sys
+import os
 
+if "win" in sys.platform:
+    usr_bin = str(Path(".", "cygwin64", "usr", "local", "bin"))
+    bin = str(Path(".", "cygwin64", "bin"))
+    mingw = str(Path(".", "usr", "local", "mingw64.bin"))
+    if usr_bin not in os.environ["PATH"]:
+        os.environ["PATH"] += ";" + usr_bin
+    if bin not in os.environ["PATH"]:
+        os.environ["PATH"] += ";" + bin
+    if mingw not in os.environ["PATH"]:
+        os.environ["PATH"] += ";" + mingw
 
 class GzipAction(enum.Enum):
     Compress = 0
@@ -11,145 +22,45 @@ class GzipAction(enum.Enum):
     Reindex = 2
 
 
-def bin(f):
-    def execute_binary(self, args=[], decode=True):
+def run(f):
+    def execute_binary(self, args=[], stdout=None, stdin=None, wait=False):
         if not isinstance(args, list):
             # Handle (common) case of a single parameter.
             args = [str(args)]
+        args = [f.__name__, *[str(x) for x in args]]
         
-        process = External.get_bin_folder().joinpath(f.__name__)
-        args = [process, *[str(x) for x in args]]
-        output = subprocess.run(args, capture_output=True)
-        if output.returncode != 0:
-            raise RuntimeError(
-                f"Process {f.__name__} failed with error: {output.stderr}"
-            )
-        if decode:
-            return output.stdout.decode()
-        return output.stdout
-    return execute_binary
-
-def usr_bin(f):
-    def execute_binary(self, args=[], decode=True):
-        if not isinstance(args, list):
-            # Handle (common) case of a single parameter.
-            args = [args]
-        
-        process = External.get_usr_bin_folder().joinpath(f.__name__)
-        args = [process, *args]
-        output = subprocess.run(args, capture_output=True)
-        if output.returncode != 0:
-            raise RuntimeError(
-                f"Process {f.__name__} failed with error: {output.stderr}"
-            )
-        if decode:
-            return output.stdout.decode()
-        return output.stdout
-    return execute_binary
-
-def bio(f):
-    def execute_binary(self, args=[], decode=True):
-        if not isinstance(args, list):
-            # Handle (common) case of a single parameter.
-            args = [args]
-        
-        process = External.get_bio_folder().joinpath(f.__name__)
-        args = [process, *args]
-        output = subprocess.run(args, capture_output=True)
-        if output.returncode != 0:
-            raise RuntimeError(
-                f"Process {f.__name__} failed with error: {output.stderr}"
-            )
-        if decode:
-            return output.stdout.decode()
-        return output.stdout
+        output = subprocess.Popen(args, stdout=stdout, stdin=stdin)
+        if wait == True:
+            output.wait()
+        return output
     return execute_binary
 
 class External:
     """Wrapper around External files"""
 
-    def get_bio_folder():
-        if "darwin" in sys.platform.lower():
-            return pathlib.Path("/", "opt", "local", "bin")
-        return External.get_usr_bin_folder()
-
-    def get_usr_bin_folder():
-        if "win" in sys.platform:
-            return pathlib.Path("cygwin64", "usr", "local", "bin")
-        return pathlib.Path("/", "usr", "bin")
-
-    def get_bin_folder():
-        if "win" in sys.platform:
-            return pathlib.Path("cygwin64", "bin")
-        return pathlib.Path("/", "bin")
-
-    def get_java8_folder():
-        # Windows
-        jre8 = f'{install_FP}jre8/bin/java'     # If Win10 installer had to install, then local to WGSE
-        if not java8x_FN and is_command_available(jre8, "-version", True):
-            java8x_FN = jre8
-            java8_version = cp_version
-        jre17 = f'{install_FP}jre17/bin/java'   # If Win10 installer had to install, then local to WGSE
-        if not java17x_FN and is_command_available(jre17, "--version", True):
-            java17x_FN = jre17
-            java17_version = cp_version
-        # Mac
-        jre8 = f'/Library/Java/JavaVirtualMachines/zulu-8.jre/Contents/Home/bin/java'
-        if not java8x_FN and is_command_available(jre8, "-version", True):
-            java8x_FN = jre8
-            java8_version = cp_version
-        
-        if not java17x_FN:
-            import glob
-            jvms = glob.glob(f'/Library/Java/JavaVirtualMachines/zulu-[12]?.jre/Contents/Home')
-            if len(jvms) > 0:
-                jre17 = f'{jvms[0]}/bin/java'
-                if is_command_available(jre17, "--version", True):
-                    java17x_FN = jre17
-                    java17_version = cp_version
-        # Linux
-        jre8 = f'/usr/lib/jvm/java-8-openjdk-amd64/bin/java'
-        if not java8x_FN and is_command_available(jre8, "-version", True):
-            java8x_FN = jre8
-            java8_version = cp_version
-        if not java17x_FN:
-            import glob
-            jvms = glob.glob(f'/usr/lib/jvm/java-[12]?-openjdk-amd64')
-            if len(jvms) > 0:
-                jre17 = f'{jvms[0]}/bin/java'
-                if is_command_available(jre17, "--version", True):
-                    java17x_FN = jre17
-                    java17_version = cp_version
-
     def __init__(self, installation_directory: Path = None) -> None:
-        if installation_directory == None:
-            usr_local = External.get_usr_bin_folder()
-            bin = External.get_bin_folder()
-        else:
-            bin = usr_local = installation_directory
+        if installation_directory is not None:
+            if not installation_directory.exists():
+                raise FileNotFoundError(
+                    f"Unable to find root directory for External: {str(installation_directory)}"
+                )
+            if str(installation_directory) not in os.environ["PATH"]:
+                os.environ["PATH"] += ";" + str(installation_directory)
 
-        if not usr_local.exists():
-            raise FileNotFoundError(
-                f"Unable to find root directory for External: {str(usr_local)}"
-            )
+        self._htsfile = "htsfile"
+        self._samtools = "samtools"
+        self._bgzip = "bgzip"
+        self._gzip = "gzip"
 
-        self._usr_bin = usr_local
-        self._bin = bin
-        self._htsfile = str(self._usr_bin.joinpath("htsfile"))
-        self._samtools = str(self._usr_bin.joinpath("samtools"))
-        self._bgzip = str(self._usr_bin.joinpath("bgzip"))
-        self._gzip = str(self._bin.joinpath("gzip"))
-        
-        files_collection = [
-            self._htsfile,
-            self._samtools,
-            self._bgzip,
-        ]
-
-        unix_files = all([x for x in files_collection if Path(x).exists()])
-        win_files = all([x for x in files_collection if Path(x + ".exe").exists()])
-        if not (unix_files or win_files):
-            raise FileNotFoundError("Unable to find all the required 3rd party tools.")
+        # files_collection = [
+        #     self._htsfile,
+        #     self._samtools,
+        #     self._bgzip,
+        # ]
+        # unix_files = all([x for x in files_collection if Path(x).exists()])
+        # win_files = all([x for x in files_collection if Path(x + ".exe").exists()])
+        # if not (unix_files or win_files):
+        #     raise FileNotFoundError("Unable to find all the required 3rd party tools.")
 
     def get_file_type(self, path: Path):
         process = subprocess.run([self._htsfile, path], capture_output=True, check=True)
@@ -163,8 +74,8 @@ class External:
         process = subprocess.run(arguments, check=True, capture_output=True)
         return process.stdout.decode("utf-8")
 
-    def view(self, file: Path, output: Path):
-        arguments = [self._samtools, "view", "-H", "--no-PG", file]
+    def view(self, file: Path, output: Path, *args):
+        arguments = [self._samtools, "view", "-H", "--no-PG", *args, file]
         process = subprocess.run(arguments, check=True, capture_output=True)
         return process.stdout.decode("utf-8")
 
@@ -242,68 +153,90 @@ class External:
         process = subprocess.run(arguments)
         return process.stdout.decode("utf-8")
 
-    @bio
-    def bwa(self,*k):
+    @run
+    def samtools(self, *k):
         pass
-    @bio
-    def bwamem2(self,*k):
+
+    @run
+    def bwa(self, *k):
         pass
-    @bio
-    def minimap2(self,*k):
+
+    @run
+    def bwamem2(self, *k):
         pass
-    @bio
-    def fastp(self,*k):
+
+    @run
+    def minimap2(self, *k):
         pass
-    @bio
+
+    @run
+    def fastp(self, *k):
+        pass
+
+    @run
     def bcftool(self, *k):
         pass
-    @bio
+
+    @run
     def tabix(self, *k):
         pass
 
-    @usr_bin
+    @run
     def head(self, *k):
         pass
-    @usr_bin
+
+    @run
     def tail(self, *k):
         pass
-    @usr_bin
+
+    @run
     def gawk(self, *k):
         pass
-    @usr_bin
+
+    @run
     def grep(self, *k):
         pass
-    @usr_bin
+
+    @run
     def sort(self, *k):
         pass
-    
-    @bin
+
+    @run
     def cat(self, *k):
         pass
-    @bin
+
+    @run
     def zcat(self, *k):
         pass
-    @bin
+
+    @run
     def wc(self, *k):
         pass
-    @bin
+
+    @run
     def sed(self, *k):
         pass
-    @bin
+
+    @run
     def zip(self, *k):
         pass
-    @bin
+
+    @run
     def unzip(self, *k):
         pass
-    @bin
+
+    @run
     def mv(self, *k):
         pass
-    @bin
+
+    @run
     def cut(self, *k):
         pass
-    @bin
+
+    @run
     def uniq(self, *k):
         pass
-    @bin
+
+    @run
     def pr(self, *k):
         pass
