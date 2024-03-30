@@ -546,6 +546,7 @@ def init(interactive=False):
     # Start global debug messages if requested (utilities.py); start after TemporaryFiles so it can clean directory
     if os.path.exists(debugset_oFN) and os.path.isfile(debugset_oFN):
         DEBUG_MODE = True
+        logging.getLogger().setLevel(logging.DEBUG)
         logging.debug("***** Debug Mode Turned On *****") if gui else ''
 
     # Special for Win10 patch to use WSL BWA as CygWIn64 is not running multiproc
