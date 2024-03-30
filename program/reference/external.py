@@ -11,49 +11,139 @@ class GzipAction(enum.Enum):
     Reindex = 2
 
 
+def bin(f):
+    def execute_binary(self, args=[], decode=True):
+        if not isinstance(args, list):
+            # Handle (common) case of a single parameter.
+            args = [str(args)]
+        
+        process = External.get_bin_folder().joinpath(f.__name__)
+        args = [process, *[str(x) for x in args]]
+        output = subprocess.run(args, capture_output=True)
+        if output.returncode != 0:
+            raise RuntimeError(
+                f"Process {f.__name__} failed with error: {output.stderr}"
+            )
+        if decode:
+            return output.stdout.decode()
+        return output.stdout
+    return execute_binary
+
+def usr_bin(f):
+    def execute_binary(self, args=[], decode=True):
+        if not isinstance(args, list):
+            # Handle (common) case of a single parameter.
+            args = [args]
+        
+        process = External.get_usr_bin_folder().joinpath(f.__name__)
+        args = [process, *args]
+        output = subprocess.run(args, capture_output=True)
+        if output.returncode != 0:
+            raise RuntimeError(
+                f"Process {f.__name__} failed with error: {output.stderr}"
+            )
+        if decode:
+            return output.stdout.decode()
+        return output.stdout
+    return execute_binary
+
+def bio(f):
+    def execute_binary(self, args=[], decode=True):
+        if not isinstance(args, list):
+            # Handle (common) case of a single parameter.
+            args = [args]
+        
+        process = External.get_bio_folder().joinpath(f.__name__)
+        args = [process, *args]
+        output = subprocess.run(args, capture_output=True)
+        if output.returncode != 0:
+            raise RuntimeError(
+                f"Process {f.__name__} failed with error: {output.stderr}"
+            )
+        if decode:
+            return output.stdout.decode()
+        return output.stdout
+    return execute_binary
+
 class External:
     """Wrapper around External files"""
 
-    def get_bio_default_directory():
+    def get_bio_folder():
+        if "darwin" in sys.platform.lower():
+            return pathlib.Path("/", "opt", "local", "bin")
+        return External.get_usr_bin_folder()
+
+    def get_usr_bin_folder():
         if "win" in sys.platform:
             return pathlib.Path("cygwin64", "usr", "local", "bin")
-        else:
-            return pathlib.Path("/", "usr", "bin")
-    
-    def get_sys_default_directory():
+        return pathlib.Path("/", "usr", "bin")
+
+    def get_bin_folder():
         if "win" in sys.platform:
             return pathlib.Path("cygwin64", "bin")
-        else:
-            return pathlib.Path("/", "bin")
-    
+        return pathlib.Path("/", "bin")
+
+    def get_java8_folder():
+        # Windows
+        jre8 = f'{install_FP}jre8/bin/java'     # If Win10 installer had to install, then local to WGSE
+        if not java8x_FN and is_command_available(jre8, "-version", True):
+            java8x_FN = jre8
+            java8_version = cp_version
+        jre17 = f'{install_FP}jre17/bin/java'   # If Win10 installer had to install, then local to WGSE
+        if not java17x_FN and is_command_available(jre17, "--version", True):
+            java17x_FN = jre17
+            java17_version = cp_version
+        # Mac
+        jre8 = f'/Library/Java/JavaVirtualMachines/zulu-8.jre/Contents/Home/bin/java'
+        if not java8x_FN and is_command_available(jre8, "-version", True):
+            java8x_FN = jre8
+            java8_version = cp_version
+        
+        if not java17x_FN:
+            import glob
+            jvms = glob.glob(f'/Library/Java/JavaVirtualMachines/zulu-[12]?.jre/Contents/Home')
+            if len(jvms) > 0:
+                jre17 = f'{jvms[0]}/bin/java'
+                if is_command_available(jre17, "--version", True):
+                    java17x_FN = jre17
+                    java17_version = cp_version
+        # Linux
+        jre8 = f'/usr/lib/jvm/java-8-openjdk-amd64/bin/java'
+        if not java8x_FN and is_command_available(jre8, "-version", True):
+            java8x_FN = jre8
+            java8_version = cp_version
+        if not java17x_FN:
+            import glob
+            jvms = glob.glob(f'/usr/lib/jvm/java-[12]?-openjdk-amd64')
+            if len(jvms) > 0:
+                jre17 = f'{jvms[0]}/bin/java'
+                if is_command_available(jre17, "--version", True):
+                    java17x_FN = jre17
+                    java17_version = cp_version
+
     def __init__(self, installation_directory: Path = None) -> None:
         if installation_directory == None:
-            installation_directory_bio = External.get_bio_default_directory()
-            installation_directory_sys = External.get_sys_default_directory()
+            usr_local = External.get_usr_bin_folder()
+            bin = External.get_bin_folder()
         else:
-            installation_directory_sys = installation_directory_bio = installation_directory
-        
-        if not installation_directory_bio.exists():
-            raise FileNotFoundError(
-                f"Unable to find root directory for External: {str(installation_directory_bio)}"
-            )
-            
-        self._installation_directory_bio = installation_directory_bio
-        self._installation_directory_sys = installation_directory_sys
-        self._htsfile = str(self._installation_directory_bio.joinpath("htsfile"))
-        self._samtools = str(self._installation_directory_bio.joinpath("samtools"))
-        self._tabix = str(self._installation_directory_bio.joinpath("tabix"))
-        self._bgzip = str(self._installation_directory_bio.joinpath("bgzip"))
-        self._bcftools = str(self._installation_directory_bio.joinpath("bcftools"))
-        self._gzip = str(self._installation_directory_sys.joinpath("gzip"))
+            bin = usr_local = installation_directory
 
+        if not usr_local.exists():
+            raise FileNotFoundError(
+                f"Unable to find root directory for External: {str(usr_local)}"
+            )
+
+        self._usr_bin = usr_local
+        self._bin = bin
+        self._htsfile = str(self._usr_bin.joinpath("htsfile"))
+        self._samtools = str(self._usr_bin.joinpath("samtools"))
+        self._bgzip = str(self._usr_bin.joinpath("bgzip"))
+        self._gzip = str(self._bin.joinpath("gzip"))
+        
         files_collection = [
             self._htsfile,
             self._samtools,
-            self._tabix,
             self._bgzip,
-            self._bcftools,
-            self._gzip
         ]
 
         unix_files = all([x for x in files_collection if Path(x).exists()])
@@ -66,12 +156,6 @@ class External:
         return process.stdout.decode("utf-8")
 
     def fasta_index(self, path: Path, output: Path = None):
-        """Create an index for a FASTA file.
-
-        Args:
-            path (Path): Path of the FASTA file.
-            output (Path, optional): Target output file. Defaults to None.
-        """
         if output is None:
             output = Path(str(path) + ".fai")
 
@@ -85,23 +169,13 @@ class External:
         return process.stdout.decode("utf-8")
 
     def make_dictionary(self, path: Path, output: Path = None):
-        """Wrapper around "samtool dict" command. Create a sequence dictionary
-        file from a fasta file.
-
-        Args:
-            fasta_file (Path): Path of the FASTA (eventually bgzip compressed) file.
-            output (Path, optional): Target output file. Defaults to None.
-
-        Returns:
-            str: Standard output of the samtool command.
-        """
         if output is None:
             output = Path(path.parent, path.name + ".dict")
         arguments = [self._samtools, "dict", str(path), "-o", str(output)]
         process = subprocess.run(arguments, check=True, capture_output=True)
         return process.stdout.decode("utf-8")
-    
-    def _gzip_filename(self, input:Path, action: GzipAction):
+
+    def _gzip_filename(self, input: Path, action: GzipAction):
         if action == GzipAction.Compress:
             return Path(str(input) + ".gz")
         elif action == GzipAction.Decompress:
@@ -114,44 +188,46 @@ class External:
             return Path(str(input) + ".gzi")
         else:
             raise RuntimeError(f"Action {action.name} not supported.")
-            
+
     def gzip(
-        self, input: Path, output: Path, action: GzipAction = GzipAction.Decompress) -> Path:
+        self, input: Path, output: Path, action: GzipAction = GzipAction.Decompress
+    ) -> Path:
         if output.exists():
-            raise RuntimeError(f"Trying to decompress {str(input)} but the destination file {str(output)} exists.")
+            raise RuntimeError(
+                f"Trying to decompress {str(input)} but the destination file {str(output)} exists."
+            )
         inferred_filename = self._gzip_filename(input, action)
-        
-        action_flags = {
-            GzipAction.Compress:"",
-            GzipAction.Decompress:"-d"
-        }
-        
+
+        action_flags = {GzipAction.Compress: "", GzipAction.Decompress: "-d"}
+
         arguments = [self._gzip, action_flags[action], str(input)]
         process = subprocess.run(arguments, capture_output=True)
-        
+
         if process.returncode != 0:
             # RAFZ format is libz compatible but will make gzip returning
             # with a != 0 code, complaining about "trailing garbage data".
             # This is not a real error, as the file is decompressed anyway.
             # The issue is potentially fixable by truncating the file, but
-            # there's no practical advantage in doing so. If we fall in this 
+            # there's no practical advantage in doing so. If we fall in this
             # situation, ignore the error.
             if "trailing garbage" not in process.stderr.decode():
                 raise RuntimeError(f"gzip failed: {process.stderr}")
-        
+
         if inferred_filename != output:
             inferred_filename.rename(output)
 
     def bgzip(
-        self, input: Path, output: Path, action: GzipAction = GzipAction.Compress, index: Path = None
+        self, input: Path, output: Path, action: GzipAction = GzipAction.Compress
     ) -> Path:
         if output.exists():
-            raise RuntimeError(f"Trying to decompress {str(input)} but the destination file {str(output)} exists.")
-        
+            raise RuntimeError(
+                f"Trying to decompress {str(input)} but the destination file {str(output)} exists."
+            )
+
         action_flags = {
-            GzipAction.Compress:"-if",
-            GzipAction.Decompress:"-d",
-            GzipAction.Reindex: "-r"
+            GzipAction.Compress: "-if",
+            GzipAction.Decompress: "-d",
+            GzipAction.Reindex: "-r",
         }
         inferred_filename = self._gzip_filename(input, action)
 
@@ -160,16 +236,74 @@ class External:
         if inferred_filename != output:
             inferred_filename.rename(output)
 
-    def tab_indexer(
-        self,
-    ):
-        """Generic indexer for TAB-delimited genome position files"""
-        arguments = [self._tabix]
-        process = subprocess.run(arguments)
-        return process.stdout.decode("utf-8")
-
     def idxstats(self, input: Path):
         """Generate BAM index statistics"""
         arguments = [self._samtools, "idxstat", input]
         process = subprocess.run(arguments)
         return process.stdout.decode("utf-8")
+
+    @bio
+    def bwa(self,*k):
+        pass
+    @bio
+    def bwamem2(self,*k):
+        pass
+    @bio
+    def minimap2(self,*k):
+        pass
+    @bio
+    def fastp(self,*k):
+        pass
+    @bio
+    def bcftool(self, *k):
+        pass
+    @bio
+    def tabix(self, *k):
+        pass
+
+    @usr_bin
+    def head(self, *k):
+        pass
+    @usr_bin
+    def tail(self, *k):
+        pass
+    @usr_bin
+    def gawk(self, *k):
+        pass
+    @usr_bin
+    def grep(self, *k):
+        pass
+    @usr_bin
+    def sort(self, *k):
+        pass
+    
+    @bin
+    def cat(self, *k):
+        pass
+    @bin
+    def zcat(self, *k):
+        pass
+    @bin
+    def wc(self, *k):
+        pass
+    @bin
+    def sed(self, *k):
+        pass
+    @bin
+    def zip(self, *k):
+        pass
+    @bin
+    def unzip(self, *k):
+        pass
+    @bin
+    def mv(self, *k):
+        pass
+    @bin
+    def cut(self, *k):
+        pass
+    @bin
+    def uniq(self, *k):
+        pass
+    @bin
+    def pr(self, *k):
+        pass
