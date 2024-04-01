@@ -29,9 +29,12 @@ def run(f):
             args = [str(args)]
         args = [f.__name__, *[str(x) for x in args]]
         
-        output = subprocess.Popen(args, stdout=stdout, stdin=stdin)
+        output = subprocess.Popen(args, stdout=stdout, stdin=stdin, stderr=subprocess.PIPE)
         if wait == True:
-            output.wait()
+            out, err = output.communicate()
+            if output.returncode!= 0:
+                raise RuntimeError(f"Call to {f.__name__} failed: {err.decode()}")
+            return out
         return output
     return execute_binary
 

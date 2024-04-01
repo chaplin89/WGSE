@@ -35,6 +35,8 @@ from fastqfiles import determine_sequencer
 import settings as wgse
 import logging
 
+logging = logging.getLogger(__name__)
+
 
 ######################################################################################################################
 # BAM File Processing Error Classes
@@ -228,11 +230,10 @@ class BAMFile:
         """ Reads and stores BAM header. Sets BAM.CoordSorted also. Does not need BAM Index file (.bai). """
 
         # Rewritten to process more of header; and process header in Python and not BASH AWK/GREP scripts
-        samtools = nativeOS(unquote(wgse.samtoolsx_qFN))
-        # bamhead_qFN = f'"{wgse.tempf.FP}bamheader.tmp"'
         bamfile  = self.file_oFN
+        self.Header = self.external.samtools(["view", "-H", "--no-PG", bamfile], stdout=subprocess.PIPE, wait=True)
+        self.Header = self.Header.decode()
 
-        self.Header = simple_command((samtools, "view", "-H", "--no-PG", bamfile))
         if self.Header is None or len(self.Header) < 600:
             raise BAMContentError('errBAMHeader')
 
@@ -329,7 +330,7 @@ class BAMFile:
         bulk =            numsamp if first_time else lonsamp            # 2nd round starts with first run values
         title = 'ButtonBAMStats2' if first_time else 'ButtonBAMStatsLong'
 
-        cram_opt = ""
+        cram_opt = []
         if self.file_type == "CRAM":
             cram_opt = ["-T",self.Refgenome_qFN]
         
@@ -436,7 +437,32 @@ class BAMFile:
 
             # Calculate the "mapped" BaseQ score (Phred) by doing a pileup and measuring its resulting score
             samp = 300 if lenmean > 410 else int(numsamp / 10)
-            commands  = f'{{ {samtools} view -H {cram_opt} {bamfile} ; {cat} {flagfile_qFN} | {head} -{samp} ; }} | ' \
+            quality_count = dict()
+            header = self.external.samtools(["view", "-H", *cram_opt, Path(bamfile.replace("\"",""))], stdout = subprocess.PIPE, wait=True)
+            content = self.external.head([f"-{samp}", flagfile_qFN.replace("\"","")], stdout = subprocess.PIPE, wait=True)
+            mpileup = self.external.samtools(["mpileup", "-"], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+            mpileup_out, mpileup_err = mpileup.communicate(input=header + content)
+            mpileup_out = mpileup_out.decode()
+            
+            for line in mpileup_out.split("\n"):
+                if line == "":
+                    continue
+                char = ord(line.split("\t")[5][0])-33
+                if char not in quality_count:
+                    quality_count[char] = 0
+                quality_count[char] += 1
+
+            tot_cnt = bin30 = bin20 = 0            
+            for key, item in quality_count.items():
+                cnt = item
+                val = key
+                tot_cnt += cnt
+                if val > 29:
+                    bin30 += cnt
+                if val > 19:
+                    bin20 += cnt
+            
+            commands = f'{{ {samtools} view -H {" ".join(cram_opt)} {bamfile} ; {cat} {flagfile_qFN} | {head} -{samp} ; }} | ' \
                         f' {samtools} mpileup - | {cut} -f6 | {cut} -c1 | {sort} | {uniq} -c > {flagfile2_qFN} \n'
             commands += f'{head} {flagfile2_qFN} | {pr} -aT7 \n' if wgse.DEBUG_MODE else ""
             run_bash_script('ButtonBAMStats3', commands, parent=wgse.window)
@@ -541,6 +567,13 @@ class BAMFile:
                     "ButtonBAMNoIndex" if self.Sorted else \
                     "ButtonBAMNoSort"
             run_bash_script(title, commands, parent=wgse.window)        # Do not use simple_command; can be a long run
+
+            # TODO: add call to please wait win
+            # self.Sorted and self.Indexed and self.file_type == "BAM" -> "ButtonBAMStats"
+            # self.Sorted -> "ButtonBAMNoIndex"
+            # else -> "ButtonBAMNoSort"
+            # with open(idxfile_qFN, "wb")  as f:
+            #     self.external.samtools(["idxstats", bamfile], stdout=f)
 
             # If still not there then report an error as could not create it when wanted to
             idxstats_file_exists = os.path.isfile(idxfile_oFN) and os.path.getsize(idxfile_oFN) > 480
@@ -963,6 +996,10 @@ class BAMFile:
             commands = f'{samtools} depth {subopts} {bamfile} | {awk} {script} > {covfile_qFN}'
 
             run_bash_script("CoverageStatsBIN", commands, parent=window)
+            # CoverageStatsBIN -> For the please wait window
+            # depth_out = self.external.samtools(["depth", subopts, bamfile], stdout=subprocess.PIPE)
+            # with open(covfile_qFN, "wb") as f:
+            #     self.external.gawk([script], stdin=depth_out.stdout, stdout=f)
 
         # Check if coverage file generated properly
         if not (os.path.isfile(covfile_oFN) and os.path.getsize(covfile_oFN) > 120):     # header-only is 107 bytes
