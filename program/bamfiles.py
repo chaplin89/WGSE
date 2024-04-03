@@ -436,6 +436,7 @@ class BAMFile:
                 raise BAMContentErrorFile('errBAMInconsistentReadType', flagfile_oFN)
 
             # Calculate the "mapped" BaseQ score (Phred) by doing a pileup and measuring its resulting score
+            # ButtonBAMStats3
             samp = 300 if lenmean > 410 else int(numsamp / 10)
             quality_count = dict()
             header = self.external.samtools(["view", "-H", *cram_opt, Path(bamfile.replace("\"",""))], stdout = subprocess.PIPE, wait=True)
@@ -461,28 +462,6 @@ class BAMFile:
                     bin30 += cnt
                 if val > 19:
                     bin20 += cnt
-            
-            commands = f'{{ {samtools} view -H {" ".join(cram_opt)} {bamfile} ; {cat} {flagfile_qFN} | {head} -{samp} ; }} | ' \
-                        f' {samtools} mpileup - | {cut} -f6 | {cut} -c1 | {sort} | {uniq} -c > {flagfile2_qFN} \n'
-            commands += f'{head} {flagfile2_qFN} | {pr} -aT7 \n' if wgse.DEBUG_MODE else ""
-            run_bash_script('ButtonBAMStats3', commands, parent=wgse.window)
-
-            flagfile2_oFN = nativeOS(unquote(flagfile2_qFN))
-            if not os.path.exists(flagfile2_oFN):
-                raise BAMContentErrorFile('errBAMNoFlags2File', flagfile2_oFN)
-
-            # Simple bin calculation for Q30 and Q20 to get percentages (not mean, std dev)
-            with open(flagfile2_oFN, "r") as pileup_file:
-                tot_cnt = bin30 = bin20 = 0
-                for pile_line in pileup_file:
-                    field = pile_line.strip().split(" ")
-                    cnt = int(field[0])
-                    val = ord(field[1][0])-33
-                    tot_cnt += cnt
-                    if val > 29:
-                        bin30 += cnt
-                    if val > 19:
-                        bin20 += cnt
 
             self.pup_q30 = self.pup_q20 = 0
             if tot_cnt > 0:
@@ -998,7 +977,7 @@ class BAMFile:
             run_bash_script("CoverageStatsBIN", commands, parent=window)
             # CoverageStatsBIN -> For the please wait window
             # depth_out = self.external.samtools(["depth", subopts, bamfile], stdout=subprocess.PIPE)
-            # with open(covfile_qFN, "wb") as f:
+            # with open(covfile_qFN.replace("\"", ""), "wb") as f:
             #     self.external.gawk([script], stdin=depth_out.stdout, stdout=f)
 
         # Check if coverage file generated properly

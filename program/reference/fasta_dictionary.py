@@ -19,6 +19,8 @@ class FastaDictionaryHeader:
 
 class FastaDictionary:
     def __init__(self, path: pathlib.Path) -> None:
+        if not path.exists():
+            raise FileNotFoundError(f"Unable to find file: {str(path)}")
         self._path = path
         self.header = None
         self.entries: typing.OrderedDict[str, FastaDictionaryEntry] = OrderedDict()
