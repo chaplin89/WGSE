@@ -99,7 +99,7 @@ class FastaFile:
         self._bases_progressbar = None
         if not self.genome.dict.exists():
             raise RuntimeError(f"Unable to find dictionary in {self.genome.dict.name}.")
-        self._dict = FastaDictionary(self.genome.dict)
+        self._dict = FastaDictionary.load_from_file(self.genome.dict)
         self._support_multiline_progress = "win" not in sys.platform
 
     @property

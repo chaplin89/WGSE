@@ -9,16 +9,24 @@ class Buckets:
     """Represent a sequence partitioned into subsequences of fixed lenght called buckets"""
 
     def __init__(
-        self, sequence: Sequence, buckets_number: int, long_run_threshold: int
+        self,
+        sequence: Sequence,
+        buckets_number: int,
+        long_run_threshold: int,
+        items: typing.OrderedDict[int, int] = None,
     ) -> None:
         self._buckets_number = buckets_number
         self._long_run_threshold: int = long_run_threshold
         self._sequence: Sequence = sequence
-        self.buckets = self._make_buckets()
+        self.buckets = items
+        
+        if self.buckets is None:
+            self.buckets = self._make_buckets()
 
     def _make_buckets(self) -> typing.OrderedDict[int, int]:
         if self._buckets_number > self._sequence.length:
             # Can't have less than 1 N per bucket.
+            # This can happen in short sequence (i.e., decoy).
             return collections.OrderedDict()
 
         buckets = collections.OrderedDict()
@@ -33,7 +41,8 @@ class Buckets:
             index_bucket_start = int(math.floor(start / bucket_size))
             index_bucket_end = int(math.floor(end / bucket_size))
 
-            # Iterate over each bucket determining how many
+            # Iterate over each bucket determining how many elements are in 
+            # each bucket.
             for bucket in range(index_bucket_start, index_bucket_end + 1):
                 start_bucket_offset = max(bucket * bucket_size, start)
                 end_bucket_offset = min(bucket * bucket_size + bucket_size - 1, end)
@@ -44,6 +53,3 @@ class Buckets:
                     buckets[bucket] = 0
                 buckets[bucket] += runs_count
         return buckets
-
-    def __getitem__(self, key):
-        return self.buckets[key]

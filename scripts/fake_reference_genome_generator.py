@@ -21,7 +21,7 @@ class FakeReferenceGenomeGenerator:
 
     def __init__(self, fasta_dictionary : pathlib.Path, read_length: int):
         self.read_length = read_length
-        self.dictionary = FastaDictionary(fasta_dictionary)
+        self.dictionary = FastaDictionary.load_from_file(fasta_dictionary)
 
         
     def generate_fasta(self, length, filename: pathlib.Path = pathlib.Path("fake_genome.fasta")):

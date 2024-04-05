@@ -16,10 +16,10 @@ from .csv_metadata_loader import CsvMetadataLoader
 
 
 class FileStatus(enum.Enum):
-    Available = (0,)
-    NotAvailable = (1,)
-    Corrupt = (2,)
-    Valid = (3,)
+    Available = 0
+    NotAvailable = 1
+    Corrupt = 2
+    Valid = 3
 
 
 class GenomeRepository:
@@ -29,7 +29,7 @@ class GenomeRepository:
         csv: Path = Path("reference/genomes/genomes.csv"),
         root: Path = Path("reference/genomes"),
         external: Path = None,
-    ) -> 'GenomeRepository':
+    ) -> "GenomeRepository":
         external = External(external)
         type_checker = FileTypeChecker(external)
         return GenomeRepository(
@@ -101,7 +101,9 @@ class GenomeRepository:
     def single(self, id, source):
         result = self.filter(id, source)
         if len(result) != 1:
-            raise RuntimeError("More than one reference genome found with selected criteria(s).")
+            raise RuntimeError(
+                "More than one reference genome found with selected criteria(s)."
+            )
         return result[0]
 
     def _post_download(self, genome: Genome):
@@ -192,11 +194,6 @@ class GenomeRepository:
         return status
 
     def _get_bgzip(self, genome: Genome, callback):
-        """Add a genome to the library
-
-        Args:
-            genome (Genome): _description_
-        """
         if genome.final_name.exists():
             type = self._type_checker.get_type(genome.final_name)
             if type == Type.BGZIP:

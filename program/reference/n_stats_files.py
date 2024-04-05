@@ -36,12 +36,12 @@ import logging
 import time
 import typing
 import statistics
+import csv
 
 from .buckets import Buckets
 from .fasta_file import FastaFile, Sequence
 from .external import External
 from .genome import Genome
-
 
 class NStatsFiles:
     """Manage the creation of statistics files for Ns."""
@@ -56,7 +56,7 @@ class NStatsFiles:
         self._buckets_number = buckets_number
         self._fasta_file = fasta_file
 
-    def get_nbin(self, sequences: typing.List[Sequence]):
+    def save_nbin(self, sequences: typing.List[Sequence]):
         lines = [
             "#WGS Extract runs of N: BIN definition file\n",
             f"#Processing Ref Model: {self._fasta_file.model_name} with >{self._long_run_threshold}bp of N runs\n",
@@ -69,8 +69,11 @@ class NStatsFiles:
                 row = f"{sequence.name}\t{index+1}\t{run.start:,}\t{run.length:,}\n"
                 lines.append(row)
         return lines
+    
+    def load_bed(self):
+        pass
 
-    def get_bed(self, sequences: typing.List[Sequence]):
+    def save_bed(self, sequences: typing.List[Sequence]):
         lines = [
             "#WGS Extract runs of N: BED file of bin definitions\n",
             f"#Processing Ref Model: {self._fasta_file.model_name} with >{self._long_run_threshold}bp of N runs\n",
@@ -82,8 +85,23 @@ class NStatsFiles:
                 row = f"{sequence.name}\t{run.start}\t{run.start+run.length}\n"
                 lines.append(row)
         return lines
+    
+    def load_nbuc(self):
+        entries = list()
+        with open(self._fasta_file.genome.nbuc, "r") as f:
+            reader = csv.DictReader(f, delimiter="\t")
+            for row in reader:
+                entries.append
+                sequence = Sequence(row[0], row[1])
+                
+                n_count= row[0]
+                NumNreg= row[0]
+                NregSizeMean= row[0]
+                NregSizeStdDev= row[0]
+                SmlNreg= row[0]
+                BuckSize= row[0]
 
-    def get_nbuc(self, sequences: typing.List[Sequence]):
+    def save_nbuc(self, sequences: typing.List[Sequence]):
         lines = [
             "#WGS Extract generated Sequence of N summary file\n",
             f"#Model {self._fasta_file.model_name} with >{self._long_run_threshold}bp Sequence of N and {self._buckets_number} buckets per sequence\n",
@@ -128,9 +146,12 @@ class NStatsFiles:
             f.writelines(lines)
 
     def _generate_files(self, sequences: typing.Dict[str, typing.List[Sequence]]):
-        self._generate_file(self._fasta_file.genome.nbuc, self.get_nbuc(sequences))
-        self._generate_file(self._fasta_file.genome.bed, self.get_bed(sequences))
-        self._generate_file(self._fasta_file.genome.nbin, self.get_nbin(sequences))
+        self._generate_file(self._fasta_file.genome.nbuc, self.save_nbuc(sequences))
+        self._generate_file(self._fasta_file.genome.bed, self.save_bed(sequences))
+        self._generate_file(self._fasta_file.genome.nbin, self.save_nbin(sequences))
+        
+    def _load_files(self):
+        pass
 
     def generate_stats(self):
         logging.info(f"{self._fasta_file.genome.final_name.name}: Counting Ns.")
@@ -140,7 +161,7 @@ class NStatsFiles:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser("unknown_bases_stats.py")
+    parser = argparse.ArgumentParser(__name__)
     parser.add_argument(
         "--reference",
         help="Indicate the path of the bgzip compressed reference genome",
