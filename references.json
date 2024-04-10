@@ -1,15 +1,16 @@
 [
     {
         "name": "UCSC",
+        "description": "Files distribuited by the University of California Santa Cruz (USCS) Genomic Institute (https://genomics.ucsc.edu/)",
         "builds": [
             {
                 "name": "19",
                 "genomes": [
                     {
-                        "url": "https://hgdownload.soe.ucsc.edu/goldenPath/hg19/bigZips/analysisSet/hg19.p13.plusMT.full_analysis_set.fa.gz"
+                        "fasta_url": "https://hgdownload.soe.ucsc.edu/goldenPath/hg19/bigZips/analysisSet/hg19.p13.plusMT.full_analysis_set.fa.gz"
                     },
                     {
-                        "url": "https://hgdownload.soe.ucsc.edu/goldenPath/hg19/bigZips/analysisSet/hg19.p13.plusMT.no_alt_analysis_set.fa.gz"
+                        "fasta_url": "https://hgdownload.soe.ucsc.edu/goldenPath/hg19/bigZips/analysisSet/hg19.p13.plusMT.no_alt_analysis_set.fa.gz"
                     }
                 ]
             },
@@ -17,23 +18,24 @@
                 "name": "38",
                 "genomes": [
                     {
-                        "url": "https://hgdownload.soe.ucsc.edu/goldenPath/hg38/bigZips/analysisSet/hg38.analysisSet.fa.gz"
+                        "fasta_url": "https://hgdownload.soe.ucsc.edu/goldenPath/hg38/bigZips/analysisSet/hg38.analysisSet.fa.gz"
                     }
                 ]
             }
         ]
     },
     {
-        "name": "Project1kGenomes",
+        "name": "1k",
+        "description": "Files used as reference in the Project 1000 Genomes (https://www.internationalgenome.org/)",
         "builds": [
             {
                 "name": "19",
                 "genomes": [
                     {
-                        "url": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/technical/reference/human_g1k_v37.fasta.gz"
+                        "fasta_url": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/technical/reference/human_g1k_v37.fasta.gz"
                     },
                     {
-                        "url": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/technical/reference/phase2_reference_assembly_sequence/hs37d5.fa.gz"
+                        "fasta_url": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/technical/reference/phase2_reference_assembly_sequence/hs37d5.fa.gz"
                     }
                 ]
             },
@@ -41,7 +43,7 @@
                 "name": "38",
                 "genomes": [
                     {
-                        "url": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/technical/reference/GRCh38_reference_genome/GRCh38_full_analysis_set_plus_decoy_hla.fa"
+                        "fasta_url": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/technical/reference/GRCh38_reference_genome/GRCh38_full_analysis_set_plus_decoy_hla.fa"
                     }
                 ]
             }
@@ -49,185 +51,245 @@
     },
     {
         "name": "Ensembl",
+        "description": "File distribuited by the Ensembl project (https://www.ensembl.org/info/about/index.html)",
         "builds": [
             {
-                "name": "19",
+                "name": "37",
                 "genomes": [
                     {
-                        "url": "https://ftp.ensembl.org/pub/release-55/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.55.dna.toplevel.fa.gz"
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-55/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.55.dna.toplevel.fa.gz",
+                        "downloaded_size": 847157424
                     },
                     {
-                        "url": "https://ftp.ensembl.org/pub/release-56/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.56.dna.toplevel.fa.gz"
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-56/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.56.dna.toplevel.fa.gz",
+                        "downloaded_size": 847892718
                     },
                     {
-                        "url": "https://ftp.ensembl.org/pub/release-57/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.57.dna.toplevel.fa.gz"
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-57/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.57.dna.toplevel.fa.gz",
+                        "downloaded_size": 847896129
                     },
                     {
-                        "url": "https://ftp.ensembl.org/pub/release-58/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.58.dna.toplevel.fa.gz"
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-58/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.58.dna.toplevel.fa.gz",
+                        "downloaded_size": 847896129
                     },
                     {
-                        "url": "https://ftp.ensembl.org/pub/release-59/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.59.dna.toplevel.fa.gz"
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-59/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.59.dna.toplevel.fa.gz",
+                        "downloaded_size": 849392852
                     },
                     {
-                        "url": "https://ftp.ensembl.org/pub/release-60/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.60.dna.toplevel.fa.gz"
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-60/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.60.dna.toplevel.fa.gz",
+                        "downloaded_size": 879208654
                     },
                     {
-                        "url": "https://ftp.ensembl.org/pub/release-61/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.61.dna.toplevel.fa.gz"
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-61/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.61.dna.toplevel.fa.gz",
+                        "downloaded_size": 878643699
                     },
                     {
-                        "url": "https://ftp.ensembl.org/pub/release-62/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.62.dna.toplevel.fa.gz"
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-62/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.62.dna.toplevel.fa.gz",
+                        "downloaded_size": 885606223
                     },
                     {
-                        "url": "https://ftp.ensembl.org/pub/release-63/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.63.dna.toplevel.fa.gz"
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-63/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.63.dna.toplevel.fa.gz",
+                        "downloaded_size": 885606223
                     },
                     {
-                        "url": "https://ftp.ensembl.org/pub/release-64/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.64.dna.toplevel.fa.gz"
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-64/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.64.dna.toplevel.fa.gz",
+                        "downloaded_size": 896181363
                     },
                     {
-                        "url": "https://ftp.ensembl.org/pub/release-65/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.65.dna.toplevel.fa.gz"
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-65/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.65.dna.toplevel.fa.gz",
+                        "downloaded_size": 896181363
                     },
                     {
-                        "url": "https://ftp.ensembl.org/pub/release-66/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.66.dna.toplevel.fa.gz"
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-66/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.66.dna.toplevel.fa.gz",
+                        "downloaded_size": 905443406
                     },
                     {
-                        "url": "https://ftp.ensembl.org/pub/release-67/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.67.dna.toplevel.fa.gz"
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-67/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.67.dna.toplevel.fa.gz",
+                        "downloaded_size": 944849757
                     },
                     {
-                        "url": "https://ftp.ensembl.org/pub/release-68/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.68.dna.toplevel.fa.gz"
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-68/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.68.dna.toplevel.fa.gz",
+                        "downloaded_size": 954118991
                     },
                     {
-                        "url": "https://ftp.ensembl.org/pub/release-69/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.69.dna.toplevel.fa.gz"
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-69/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.69.dna.toplevel.fa.gz",
+                        "downloaded_size": 954118991
                     },
                     {
-                        "url": "https://ftp.ensembl.org/pub/release-70/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.70.dna.toplevel.fa.gz"
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-70/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.70.dna.toplevel.fa.gz",
+                        "downloaded_size": 981905860
                     },
                     {
-                        "url": "https://ftp.ensembl.org/pub/release-71/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.71.dna.toplevel.fa.gz"
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-71/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.71.dna.toplevel.fa.gz",
+                        "downloaded_size": 981905860
                     },
                     {
-                        "url": "https://ftp.ensembl.org/pub/release-72/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.72.dna.toplevel.fa.gz"
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-72/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.72.dna.toplevel.fa.gz",
+                        "downloaded_size": 984702909
                     },
                     {
-                        "url": "https://ftp.ensembl.org/pub/release-73/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.73.dna.toplevel.fa.gz"
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-73/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.73.dna.toplevel.fa.gz",
+                        "downloaded_size": 988179109
                     },
                     {
-                        "url": "https://ftp.ensembl.org/pub/release-74/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.74.dna.toplevel.fa.gz"
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-74/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.74.dna.toplevel.fa.gz",
+                        "downloaded_size": 993618504
                     },
                     {
-                        "url": "https://ftp.ensembl.org/pub/release-75/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.75.dna.toplevel.fa.gz"
-                    },
-                    {
-                        "url": "https://ftp.ensembl.org/pub/release-76/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.76.dna.toplevel.fa.gz"
-                    },
-                    {
-                        "url": "https://ftp.ensembl.org/pub/release-77/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.77.dna.toplevel.fa.gz"
-                    },
-                    {
-                        "url": "https://ftp.ensembl.org/pub/release-78/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.78.dna.toplevel.fa.gz"
-                    },
-                    {
-                        "url": "https://ftp.ensembl.org/pub/release-79/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.79.dna.toplevel.fa.gz"
-                    },
-                    {
-                        "url": "https://ftp.ensembl.org/pub/release-80/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.80.dna.toplevel.fa.gz"
-                    },
-                    {
-                        "url": "https://ftp.ensembl.org/pub/release-81/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.81.dna.toplevel.fa.gz"
-                    },
-                    {
-                        "url": "https://ftp.ensembl.org/pub/release-82/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.82.dna.toplevel.fa.gz"
-                    },
-                    {
-                        "url": "https://ftp.ensembl.org/pub/release-83/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.83.dna.toplevel.fa.gz"
-                    },
-                    {
-                        "url": "https://ftp.ensembl.org/pub/release-84/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.84.dna.toplevel.fa.gz"
-                    },
-                    {
-                        "url": "https://ftp.ensembl.org/pub/release-85/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.85.dna.toplevel.fa.gz"
-                    },
-                    {
-                        "url": "https://ftp.ensembl.org/pub/release-86/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.86.dna.toplevel.fa.gz"
-                    },
-                    {
-                        "url": "https://ftp.ensembl.org/pub/release-87/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.87.dna.toplevel.fa.gz"
-                    },
-                    {
-                        "url": "https://ftp.ensembl.org/pub/release-88/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.88.dna.toplevel.fa.gz"
-                    },
-                    {
-                        "url": "https://ftp.ensembl.org/pub/release-89/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.89.dna.toplevel.fa.gz"
-                    },
-                    {
-                        "url": "https://ftp.ensembl.org/pub/release-90/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.90.dna.toplevel.fa.gz"
-                    },
-                    {
-                        "url": "https://ftp.ensembl.org/pub/release-91/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.91.dna.toplevel.fa.gz"
-                    },
-                    {
-                        "url": "https://ftp.ensembl.org/pub/release-92/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.92.dna.toplevel.fa.gz"
-                    },
-                    {
-                        "url": "https://ftp.ensembl.org/pub/release-93/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.93.dna.toplevel.fa.gz"
-                    },
-                    {
-                        "url": "https://ftp.ensembl.org/pub/release-94/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.94.dna.toplevel.fa.gz"
-                    },
-                    {
-                        "url": "https://ftp.ensembl.org/pub/release-95/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.95.dna.toplevel.fa.gz"
-                    },
-                    {
-                        "url": "https://ftp.ensembl.org/pub/release-96/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.96.dna.toplevel.fa.gz"
-                    },
-                    {
-                        "url": "https://ftp.ensembl.org/pub/release-97/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.97.dna.toplevel.fa.gz"
-                    },
-                    {
-                        "url": "https://ftp.ensembl.org/pub/release-98/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.98.dna.toplevel.fa.gz"
-                    },
-                    {
-                        "url": "https://ftp.ensembl.org/pub/release-99/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.99.dna.toplevel.fa.gz"
-                    },
-                    {
-                        "url": "https://ftp.ensembl.org/pub/release-100/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.100.dna.toplevel.fa.gz"
-                    },
-                    {
-                        "url": "https://ftp.ensembl.org/pub/release-101/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.101.dna.toplevel.fa.gz"
-                    },
-                    {
-                        "url": "https://ftp.ensembl.org/pub/release-102/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.102.dna.toplevel.fa.gz"
-                    },
-                    {
-                        "url": "https://ftp.ensembl.org/pub/release-103/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.103.dna.toplevel.fa.gz"
-                    },
-                    {
-                        "url": "https://ftp.ensembl.org/pub/release-104/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.104.dna.toplevel.fa.gz"
-                    },
-                    {
-                        "url": "https://ftp.ensembl.org/pub/release-105/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.105.dna.toplevel.fa.gz"
-                    },
-                    {
-                        "url": "https://ftp.ensembl.org/pub/release-106/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.106.dna.toplevel.fa.gz"
-                    },
-                    {
-                        "url": "https://ftp.ensembl.org/pub/release-107/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.107.dna.toplevel.fa.gz"
-                    },
-                    {
-                        "url": "https://ftp.ensembl.org/pub/release-108/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.108.dna.toplevel.fa.gz"
-                    },
-                    {
-                        "url": "https://ftp.ensembl.org/pub/release-109/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.109.dna.toplevel.fa.gz"
-                    },
-                    {
-                        "url": "https://ftp.ensembl.org/pub/release-110/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.110.dna.toplevel.fa.gz"
-                    },
-                    {
-                        "url": "https://ftp.ensembl.org/pub/release-111/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.111.dna.toplevel.fa.gz"
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-75/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.75.dna.toplevel.fa.gz",
+                        "downloaded_size": 993618504
                     }
                 ]
             },
             {
-                
+                "name": "38",
+                "genomes": [
+                    {
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-76/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.toplevel.fa.gz",
+                        "downloaded_size": 1011463198
+                    },
+                    {
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-77/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.toplevel.fa.gz",
+                        "downloaded_size": 1011463198
+                    },
+                    {
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-78/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.toplevel.fa.gz",
+                        "downloaded_size": 1011463198
+                    },
+                    {
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-79/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.toplevel.fa.gz",
+                        "downloaded_size": 1029877146
+                    },
+                    {
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-80/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.toplevel.fa.gz",
+                        "downloaded_size": 1029877146
+                    },
+                    {
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-81/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.toplevel.fa.gz",
+                        "downloaded_size": 1035019519
+                    },
+                    {
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-82/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.toplevel.fa.gz",
+                        "downloaded_size": 1035019519
+                    },
+                    {
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-83/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.toplevel.fa.gz",
+                        "downloaded_size": 1045935389
+                    },
+                    {
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-84/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.toplevel.fa.gz",
+                        "downloaded_size": 1045935389
+                    },
+                    {
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-85/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.toplevel.fa.gz",
+                        "downloaded_size": 1050236935
+                    },
+                    {
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-86/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.toplevel.fa.gz",
+                        "downloaded_size": 1050236935
+                    },
+                    {
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-87/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.toplevel.fa.gz",
+                        "downloaded_size": 1050236935
+                    },
+                    {
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-88/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.toplevel.fa.gz",
+                        "downloaded_size": 1062611617
+                    },
+                    {
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-89/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.toplevel.fa.gz",
+                        "downloaded_size": 1062611617
+                    },
+                    {
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-90/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.toplevel.fa.gz",
+                        "downloaded_size": 1062611671
+                    },
+                    {
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-91/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.toplevel.fa.gz",
+                        "downloaded_size": 1062611671
+                    },
+                    {
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-92/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.toplevel.fa.gz",
+                        "downloaded_size": 1084702202
+                    },
+                    {
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-93/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.toplevel.fa.gz",
+                        "downloaded_size": 1084702229
+                    },
+                    {
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-94/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.toplevel.fa.gz",
+                        "downloaded_size": 1084701878
+                    },
+                    {
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-95/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.toplevel.fa.gz",
+                        "downloaded_size": 1084698847
+                    },
+                    {
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-96/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.toplevel.fa.gz",
+                        "downloaded_size": 1084698847
+                    },
+                    {
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-97/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.toplevel.fa.gz",
+                        "downloaded_size": 1084698847
+                    },
+                    {
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-98/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.toplevel.fa.gz",
+                        "downloaded_size": 1107654500
+                    },
+                    {
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-99/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.toplevel.fa.gz",
+                        "downloaded_size": 1107654500
+                    },
+                    {
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-100/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.toplevel.fa.gz",
+                        "downloaded_size": 1107654500
+                    },
+                    {
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-101/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.toplevel.fa.gz",
+                        "downloaded_size": 1107654500
+                    },
+                    {
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-102/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.toplevel.fa.gz",
+                        "downloaded_size": 1107654500
+                    },
+                    {
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-103/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.toplevel.fa.gz",
+                        "downloaded_size": 1107654500
+                    },
+                    {
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-104/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.toplevel.fa.gz",
+                        "downloaded_size": 1107654500
+                    },
+                    {
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-105/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.toplevel.fa.gz",
+                        "downloaded_size": 1107654500
+                    },
+                    {
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-106/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.toplevel.fa.gz",
+                        "downloaded_size": 1107654500
+                    },
+                    {
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-107/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.toplevel.fa.gz",
+                        "downloaded_size": 1107654500
+                    },
+                    {
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-108/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.toplevel.fa.gz",
+                        "downloaded_size": 1107654500
+                    },
+                    {
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-109/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.toplevel.fa.gz",
+                        "downloaded_size": 1107654500
+                    },
+                    {
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-110/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.toplevel.fa.gz",
+                        "downloaded_size": 936478864
+                    },
+                    {
+                        "fasta_url": "https://ftp.ensembl.org/pub/release-111/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.toplevel.fa.gz",
+                        "downloaded_size": 936478864
+                    }
+                ]
             }
         ]
     }
