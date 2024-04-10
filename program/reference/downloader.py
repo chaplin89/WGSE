@@ -27,6 +27,14 @@ class Downloader:
             hashlib.md5(open('filename.exe','rb').read()).hexdigest()
             return True
         return False
+    
+    def get_file_size(self, url:str):
+        curl = pycurl.Curl()
+        curl.setopt(pycurl.URL, url)
+        curl.setopt(pycurl.NOBODY, 1)
+        curl.perform()
+        return curl.getinfo(pycurl.CONTENT_LENGTH_DOWNLOAD)
+        
 
     def download(self, genome: Genome, callback: any = False) -> None:
         try:

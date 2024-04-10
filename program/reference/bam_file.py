@@ -4,11 +4,18 @@ import pathlib
 import subprocess
 import typing
 import sys
+
 sys.path.insert(0, ".\\")
 
 from .external import External
 from .genome import Genome
-from .fasta_dictionary import ChromosomeNameType, FastaDictionary, Gender, MTDNANameType, Sorting
+from .fasta_dictionary import (
+    ChromosomeNameType,
+    FastaDictionary,
+    Gender,
+    MTDNANameType,
+    Sorting,
+)
 from .genome_repository import GenomeRepository
 
 logger = logging.getLogger(__name__)
@@ -88,7 +95,7 @@ class AlignmentSummaryStats:
 
         self._file = file
         self._external = external
-        #self.stats_by_type, self.lenght_by_type = self._get_stats()
+        # self.stats_by_type, self.lenght_by_type = self._get_stats()
 
     def _get_stats(self):
         stats_by_type: typing.Dict[ChromosomeType, SequenceStatistics] = dict()
@@ -171,7 +178,7 @@ class AlignmentMapFile:
         self._summary = AlignmentSummaryStats(file, self._external)
 
         self._file_info = self._initialize_file_info()
-        
+
     def _load_header(self) -> FastaDictionary:
         lines = self._external.samtools(
             ["view", "-H", "--no-PG", self._file], stdout=subprocess.PIPE, wait=True
@@ -179,7 +186,6 @@ class AlignmentMapFile:
         lines = lines.decode().split("\n")
         dictionary = FastaDictionary(lines)
         return dictionary
-        
 
     def _initialize_file_info(self):
         file_info = AlignmentMapFileInfo()
@@ -210,10 +216,10 @@ class DeterministicSequenceOrderer:
     def __init__(self, sequences=typing.List[str]) -> None:
         self._sequences = {self._normalize(x): x for x in sequences}
         self._deterministic_ordered = self._get_ordered()
-        
+
     def __iter__(self):
         for sequence in self._deterministic_ordered:
-            yield self._sequences[sequence]
+            yield self._sequences[sequence], sequence
 
     def _get_ordered(self):
         autosomal = self._get_autosomal()
@@ -224,8 +230,10 @@ class DeterministicSequenceOrderer:
         return merged
 
     def _get_autosomal(self):
-        return [x for x in self._sequences if x.isnumeric()]
-    
+        autosomal = [x for x in self._sequences if x.isnumeric()]
+        autosomal.sort(key= lambda x: int(x))
+        return autosomal
+
     def _get_mitocondrial(self):
         return [x for x in self._sequences if x == "m"]
 
@@ -237,13 +245,13 @@ class DeterministicSequenceOrderer:
             sexual.append("y")
         return sexual
 
-    def _get_others(self, autosomal, sexual, mitochondrial ):
+    def _get_others(self, autosomal, sexual, mitochondrial):
         others = []
         for sequence in self._sequences.keys():
             is_autosomal = sequence in autosomal
             is_sexual = sequence in sexual
-            is_mitochondial = sequence in mitochondrial
-            if not is_autosomal and not is_sexual and not is_mitochondial:
+            is_mitochondrial = sequence in mitochondrial
+            if not is_autosomal and not is_sexual and not is_mitochondrial:
                 others.append(sequence)
         others.sort()
         return others
@@ -269,14 +277,14 @@ class ReferenceFinder:
         for genome in genomes:
             if not genome.dict.exists():
                 continue
-            dictionary : FastaDictionary = FastaDictionary.load_from_file(genome.dict)
+            dictionary: FastaDictionary = FastaDictionary.load_from_file(genome.dict)
             valid_genomes.append(dictionary)
             sequences = DeterministicSequenceOrderer(list(dictionary.entries.keys()))
             am_sequences = DeterministicSequenceOrderer(map._header.entries.keys())
-            
+
             ref_lenghts = [dictionary.entries[x].length for x in sequences]
             am_lenght = [map._header.entries[x].length for x in am_sequences]
-            
+
             if ref_lenghts == am_lenght:
                 print(f"Matches!!! {genome.code}")
             else:

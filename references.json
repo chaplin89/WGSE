@@ -292,5 +292,38 @@
                 ]
             }
         ]
+    },
+    {
+        "name": "YSeq",
+        "description": "Files used as a reference for YSeq",
+        "builds": [
+            {
+                "name": "37",
+                "genomes": [
+                    {
+                        "fasta_url": "http://genomes.yseq.net/WGS/ref/hg19/hg19.zip"
+                    }
+                ]
+            },
+            {
+                "name": "38",
+                "genomes": [
+                    {
+                        "fasta_url": "http://genomes.yseq.net/WGS/ref/hg38/hg38.fa"
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "name": "Google",
+        "description": "Files distribuited by Google Life Science ()"
+    },
+    {
+        "name": "EBI",
+        "description": "Fil"
+    },
+    {
+        "name": "NCBI"
     }
 ]
